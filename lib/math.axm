@@ -1,0 +1,19 @@
+% ─── Axiom Standard Library: Math ──────────────────────────────────
+%
+% Arithmetic comparisons are implemented as built-in predicates:
+%   less_than/2     — X is less_than Y (integer comparison)
+%   greater_than/2  — X is greater_than Y
+%   equal/2         — X is equal Y (integer equality)
+%
+% Usage:
+%   include "lib/math.axm".
+%
+% Examples:
+%   Is 3 less_than 5?                  → Yes.
+%   Is 10 greater_than 7?              → Yes.
+%
+% English wrappers:
+
+X is smaller_than Y if X is less_than Y.
+X is bigger_than Y if X is greater_than Y.
+X is equal_to Y if X is equal Y.

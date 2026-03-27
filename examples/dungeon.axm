@@ -1,0 +1,346 @@
+% ╔═══════════════════════════════════════════════════════════════════════╗
+% ║   CRYPT OF THE FORGOTTEN KING — A Logic Dungeon Crawler             ║
+% ║                                                                     ║
+% ║   Play by asserting facts and asking queries!                       ║
+% ║                                                                     ║
+% ║   Start:   Hero has location entrance.                              ║
+% ║            Hero has hp 20.                                          ║
+% ║   Move:    Hero has location torch_hall.                            ║
+% ║   Pickup:  Hero has holding torch.                                  ║
+% ║   Query:   Is Hero alive?                                          ║
+% ║            Who is dangerous?                                        ║
+% ║            Is entrance connected_to torch_hall?                     ║
+% ║            Who has holding something?  (inventory)                  ║
+% ╚═══════════════════════════════════════════════════════════════════════╝
+
+% ═══════════════════════════════════════════════════════════════════════
+%  WORLD MAP
+% ═══════════════════════════════════════════════════════════════════════
+%
+%                          [exit_gate]
+%                              |
+%                       [hidden_passage]
+%                          /        \
+%                     [sewer]     [prison]---[shrine]
+%                        |           |
+%                    [bone_pit]  [alchemy_lab]
+%                        |       /       \
+%                    [crypt_hall]      [library]
+%                        |               |
+%                     [pit_room]     [torch_hall]
+%                        |               |
+%  [armory]---[guard_room]          [entrance]
+%                        |
+%                  [throne_room]---[treasure_vault]
+%
+% ═══════════════════════════════════════════════════════════════════════
+
+% ─── Rooms ─────────────────────────────────────────────────────────
+
+entrance is a room.
+torch_hall is a room.
+guard_room is a room.
+armory is a room.
+pit_room is a room.
+crypt_hall is a room.
+library is a room.
+alchemy_lab is a room.
+prison is a room.
+shrine is a room.
+throne_room is a room.
+treasure_vault is a room.
+sewer is a room.
+bone_pit is a room.
+hidden_passage is a room.
+exit_gate is a room.
+
+% ─── Room Atmospheres ─────────────────────────────────────────────
+
+entrance has mood cold_stone_steps_descend_into_darkness.
+torch_hall has mood flickering_torches_illuminate_ancient_runes.
+guard_room has mood overturned_tables_and_the_stench_of_death.
+armory has mood weapon_racks_line_the_walls_mostly_empty.
+pit_room has mood a_vast_chasm_splits_the_floor_in_two.
+crypt_hall has mood rows_of_sarcophagi_stretch_into_shadow.
+library has mood crumbling_bookshelves_and_a_glowing_desk.
+alchemy_lab has mood bubbling_vials_and_hissing_apparatus.
+prison has mood rusted_cages_and_scratch_marks_everywhere.
+shrine has mood silver_light_bathes_a_stone_altar.
+throne_room has mood a_black_iron_throne_wreathed_in_shadow.
+treasure_vault has mood gold_and_gemstones_spill_from_chests.
+sewer has mood knee_deep_water_and_overwhelming_stench.
+bone_pit has mood thousands_of_bones_crunch_underfoot.
+hidden_passage has mood strange_symbols_pulse_with_light.
+exit_gate has mood moonlight_streams_through_ancient_stone.
+
+% ─── Connections ───────────────────────────────────────────────────
+% connected_to is symmetric — define both directions
+
+entrance is connected_to torch_hall.
+torch_hall is connected_to entrance.
+torch_hall is connected_to guard_room.
+torch_hall is connected_to library.
+guard_room is connected_to torch_hall.
+guard_room is connected_to pit_room.
+guard_room is connected_to armory.
+armory is connected_to guard_room.
+pit_room is connected_to guard_room.
+pit_room is connected_to crypt_hall.
+pit_room is connected_to alchemy_lab.
+crypt_hall is connected_to pit_room.
+crypt_hall is connected_to throne_room.
+crypt_hall is connected_to bone_pit.
+library is connected_to torch_hall.
+library is connected_to alchemy_lab.
+alchemy_lab is connected_to library.
+alchemy_lab is connected_to pit_room.
+alchemy_lab is connected_to prison.
+prison is connected_to alchemy_lab.
+prison is connected_to shrine.
+prison is connected_to hidden_passage.
+shrine is connected_to prison.
+throne_room is connected_to crypt_hall.
+bone_pit is connected_to crypt_hall.
+bone_pit is connected_to sewer.
+sewer is connected_to bone_pit.
+sewer is connected_to hidden_passage.
+hidden_passage is connected_to sewer.
+hidden_passage is connected_to prison.
+hidden_passage is connected_to exit_gate.
+exit_gate is connected_to hidden_passage.
+
+% Locked doors (need a key to pass)
+throne_room is locked_to treasure_vault.
+treasure_vault is locked_to throne_room.
+throne_room has unlock_key iron_key.
+
+% ─── Items ─────────────────────────────────────────────────────────
+
+% Where items are found
+entrance has loot torch.
+armory has loot rusty_sword.
+armory has loot leather_shield.
+library has loot scroll_of_fireball.
+library has loot ancient_map.
+alchemy_lab has loot health_potion.
+alchemy_lab has loot poison_flask.
+prison has loot iron_key.
+shrine has loot holy_water.
+shrine has loot amulet_of_protection.
+treasure_vault has loot crown.
+treasure_vault has loot gold_coins.
+sewer has loot health_potion.
+bone_pit has loot bone_club.
+hidden_passage has loot shadow_cloak.
+
+% Item types
+torch is a light_source.
+rusty_sword is a weapon.
+bone_club is a weapon.
+leather_shield is a shield.
+amulet_of_protection is a shield.
+shadow_cloak is a shield.
+scroll_of_fireball is a spell.
+health_potion is a consumable.
+poison_flask is a consumable.
+holy_water is a consumable.
+ancient_map is a quest_item.
+iron_key is a key.
+crown is a quest_item.
+gold_coins is a treasure.
+
+% Weapon damage
+rusty_sword has damage 4.
+bone_club has damage 3.
+
+% Spell damage (single use)
+scroll_of_fireball has damage 8.
+
+% Consumable damage (for throwing)
+poison_flask has damage 5.
+holy_water has damage 10.
+
+% Healing
+health_potion has heal_amount 6.
+
+% Defense values
+leather_shield has defense 2.
+amulet_of_protection has defense 3.
+shadow_cloak has defense 1.
+
+% ─── Monsters ─────────────────────────────────────────────────────
+
+guard_room has monster skeleton_guard.
+pit_room has monster cave_spider.
+crypt_hall has monster zombie_horde.
+alchemy_lab has monster acid_slime.
+prison has monster tortured_ghost.
+bone_pit has monster bone_golem.
+sewer has monster rat_swarm.
+throne_room has monster forgotten_king.
+
+% Monster stats
+skeleton_guard has hp 6.
+skeleton_guard has attack_power 2.
+skeleton_guard has loot_drop rusty_sword.
+skeleton_guard has mood a_skeletal_warrior_raises_a_jagged_blade.
+
+cave_spider has hp 4.
+cave_spider has attack_power 3.
+cave_spider has loot_drop spider_silk.
+cave_spider has mood a_giant_spider_drips_venom_from_the_ceiling.
+
+zombie_horde has hp 8.
+zombie_horde has attack_power 2.
+zombie_horde has mood shambling_corpses_lurch_from_open_sarcophagi.
+
+acid_slime has hp 5.
+acid_slime has attack_power 3.
+acid_slime has loot_drop acid_vial.
+acid_slime has mood a_bubbling_green_mass_dissolves_the_floor.
+
+tortured_ghost has hp 7.
+tortured_ghost has attack_power 4.
+tortured_ghost has mood a_wailing_translucent_figure_rattles_its_chains.
+
+bone_golem has hp 10.
+bone_golem has attack_power 4.
+bone_golem has mood bones_assemble_into_a_towering_figure.
+
+rat_swarm has hp 3.
+rat_swarm has attack_power 2.
+rat_swarm has mood hundreds_of_red_eyes_gleam_in_dark_water.
+
+forgotten_king has hp 15.
+forgotten_king has attack_power 5.
+forgotten_king has mood a_crowned_wraith_on_the_black_throne_and_the_room_freezes.
+
+% Boss flag
+forgotten_king is a boss.
+
+% Monster weakness: holy_water does double to undead
+skeleton_guard is undead.
+zombie_horde is undead.
+tortured_ghost is undead.
+forgotten_king is undead.
+bone_golem is undead.
+
+% ─── Traps ─────────────────────────────────────────────────────────
+
+pit_room has trap spike_trap.
+sewer has trap poison_gas.
+hidden_passage has trap dart_trap.
+
+spike_trap has trap_damage 3.
+spike_trap has mood rusty_spikes_shoot_from_the_floor.
+poison_gas has trap_damage 2.
+poison_gas has mood green_gas_seeps_from_cracks_in_the_wall.
+dart_trap has trap_damage 2.
+dart_trap has mood a_click_and_darts_fly_from_the_walls.
+
+% ─── Dark Rooms ────────────────────────────────────────────────────
+
+sewer is a dark_room.
+bone_pit is a dark_room.
+hidden_passage is a dark_room.
+
+% ─── GAME RULES ════════════════════════════════════════════════════
+
+% --- Danger assessment ---
+X is dangerous if X has monster M.
+X is trapped if X has trap T.
+X is dark if X is a dark_room.
+X is safe if X is a room and X is not dangerous and X is not trapped.
+
+% --- Reachability ---
+% "X is adjacent_to Y" means you can go from Y to X
+X is adjacent_to Y if Y is connected_to X.
+
+% Can the hero move to a room?
+X is reachable_from Y if Y is connected_to X and Y is not locked_to X.
+
+% --- What can be found ---
+X is lootable if X has loot I.
+
+% --- Monster classification ---
+X is a minion if X has hp H and X is not a boss.
+
+% --- Exploration ---
+% A room is on the critical path if it connects to the throne room or exit
+X is on critical_path if X is connected_to throne_room.
+X is on critical_path if X is connected_to exit_gate.
+X is on critical_path if X is connected_to hidden_passage.
+
+% --- Item utility ---
+X is offensive if X is a weapon.
+X is offensive if X is a spell.
+X is defensive if X is a shield.
+X is usable if X is a consumable.
+
+% --- Victory ---
+% To win: reach exit_gate holding the crown
+% (Player asserts: Hero has location exit_gate. Hero has holding crown.)
+X is a victor if X has location exit_gate and X has holding crown.
+
+% --- The gauntlet: rooms you must pass through to reach the crown ---
+% crown is in treasure_vault
+% treasure_vault requires iron_key (from prison)
+% prison is past tortured_ghost
+% throne_room is past forgotten_king (the boss)
+% exit_gate requires passing through hidden_passage (traps!)
+
+% ═══════════════════════════════════════════════════════════════════════
+%  HOW TO PLAY (via the Axiom REPL)
+% ═══════════════════════════════════════════════════════════════════════
+%
+%  1. SETUP — Assert your starting state:
+%       Hero has location entrance.
+%       Hero has hp 20.
+%
+%  2. LOOK AROUND — Query the world:
+%       Is entrance dangerous?              % check for monsters
+%       Is entrance trapped?                % check for traps
+%       Is entrance dark?                   % need a torch?
+%       Who is adjacent_to entrance?        % where can you go?
+%       Who has loot torch?                 % where is the torch? (entrance)
+%
+%  3. PICK UP ITEMS — Assert you're holding them:
+%       Hero has holding torch.
+%
+%  4. MOVE — Assert new location:
+%       Hero has location torch_hall.
+%
+%  5. CHECK MONSTERS — Before entering:
+%       Is guard_room dangerous?            % Yes! (skeleton_guard)
+%       Who has monster skeleton_guard?      % which room
+%
+%  6. FIGHT — You manage combat by hp facts:
+%       % Your rusty_sword does 4 damage to skeleton_guard (hp 6)
+%       % skeleton_guard attacks you for 2 (minus shield defense)
+%       % After 2 rounds: skeleton_guard is dead, you took ~4 damage
+%
+%  7. LOCKED DOORS:
+%       Is throne_room locked_to treasure_vault?  % Yes
+%       % Get the iron_key from prison first!
+%       Hero has holding iron_key.
+%
+%  8. THE BOSS:
+%       % forgotten_king in throne_room: 15 hp, 5 attack
+%       % Use holy_water (10 dmg to undead!) + weapon
+%       Is forgotten_king undead?           % Yes - holy water is effective!
+%
+%  9. VICTORY:
+%       Hero has holding crown.
+%       Hero has location exit_gate.
+%       Is Hero a victor?                   % Did you win?
+%
+%  STRATEGY TIPS:
+%  - Get the torch FIRST (entrance) — 3 rooms are dark
+%  - Grab rusty_sword + leather_shield from armory early
+%  - health_potions are in alchemy_lab and sewer
+%  - iron_key in prison unlocks treasure_vault
+%  - holy_water from shrine is devastating vs the undead boss
+%  - The crown is in treasure_vault behind the boss
+%  - Escape through: hidden_passage → exit_gate
+%  - Watch for traps in pit_room, sewer, hidden_passage!
+% ═══════════════════════════════════════════════════════════════════════

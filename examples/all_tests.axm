@@ -1,0 +1,19 @@
+% Family domain
+Socrates is a man.
+Every man is mortal.
+X is mortal if X is a man.
+
+% Parent/ancestor
+John is a person.
+Mary is a person.
+John is a parent of Mary.
+X is an ancestor of Y if X is a parent of Y.
+X is an ancestor of Y if X is a parent of Z and Z is an ancestor of Y.
+
+% Users/roles
+Leslie is a user.
+Leslie has role admin.
+X is an admin_user if X is a user and X has role admin.
+
+% Negation
+X can log in if X is a user and X is not banned.

@@ -1,0 +1,140 @@
+% ═══════════════════════════════════════════════════════════════════
+%  The Kingdom of Axiomia — A Complex Logic Program
+% ═══════════════════════════════════════════════════════════════════
+
+% ─── People ─────────────────────────────────────────────────────
+Arthur is a person.
+Guinevere is a person.
+Lancelot is a person.
+Morgana is a person.
+Mordred is a person.
+Galahad is a person.
+Merlin is a person.
+Percival is a person.
+Gawain is a person.
+Elaine is a person.
+
+% ─── Gender ─────────────────────────────────────────────────────
+Arthur is a male.
+Lancelot is a male.
+Mordred is a male.
+Galahad is a male.
+Merlin is a male.
+Percival is a male.
+Gawain is a male.
+Guinevere is a female.
+Morgana is a female.
+Elaine is a female.
+
+% ─── Family ─────────────────────────────────────────────────────
+Arthur is a parent of Mordred.
+Arthur is a parent of Gawain.
+Morgana is a parent of Mordred.
+Lancelot is a parent of Galahad.
+Elaine is a parent of Galahad.
+Arthur is a parent of Guinevere.
+
+% ─── Ancestry rules ────────────────────────────────────────────
+X is an ancestor of Y if X is a parent of Y.
+X is an ancestor of Y if X is a parent of Z and Z is an ancestor of Y.
+X is a descendant of Y if Y is an ancestor of X.
+
+% ─── Sibling / family inference ─────────────────────────────────
+X is a sibling of Y if Z is a parent of X and Z is a parent of Y and X is not same_as Y.
+
+% self-identity is handled as a built-in by the engine
+
+% ─── Titles and Ranks ──────────────────────────────────────────
+Arthur has rank king.
+Guinevere has rank queen.
+Lancelot has rank knight.
+Galahad has rank knight.
+Percival has rank knight.
+Gawain has rank knight.
+Merlin has rank wizard.
+Morgana has rank sorceress.
+Mordred has rank prince.
+
+% ─── The Round Table ───────────────────────────────────────────
+Arthur is a member of round_table.
+Lancelot is a member of round_table.
+Galahad is a member of round_table.
+Percival is a member of round_table.
+Gawain is a member of round_table.
+
+% ─── Loyalty and Allegiance ────────────────────────────────────
+Lancelot has allegiance Arthur.
+Galahad has allegiance Arthur.
+Percival has allegiance Arthur.
+Gawain has allegiance Arthur.
+Merlin has allegiance Arthur.
+Mordred has allegiance Morgana.
+Morgana has allegiance Morgana.
+
+% ─── Quests ────────────────────────────────────────────────────
+Galahad has quest grail.
+Percival has quest grail.
+Lancelot has quest rescue.
+Gawain has quest green_knight.
+Arthur has quest unity.
+
+% ─── Skills ────────────────────────────────────────────────────
+Arthur has skill swordsmanship.
+Arthur has skill leadership.
+Lancelot has skill swordsmanship.
+Lancelot has skill jousting.
+Galahad has skill purity.
+Galahad has skill swordsmanship.
+Merlin has skill magic.
+Merlin has skill prophecy.
+Morgana has skill magic.
+Morgana has skill enchantment.
+Percival has skill faith.
+Gawain has skill strength.
+
+% ─── Betrayal and banishment ───────────────────────────────────
+Mordred is a traitor.
+Morgana is a traitor.
+Lancelot is a traitor.
+
+% ─── Complex rules ─────────────────────────────────────────────
+
+% A knight of the realm: must be a knight, a round table member,
+% loyal to Arthur, and NOT a traitor
+X is a knight_of_realm if X has rank knight and X is a member of round_table and X has allegiance Arthur and X is not a traitor.
+
+% A true hero: knight of the realm on a quest
+X is a hero if X is a knight_of_realm and X has quest Q.
+
+% A worthy grail seeker: must be a hero specifically seeking the grail,
+% and must have purity or faith
+X is a grail_seeker if X has quest grail and X is a knight_of_realm and X has skill purity.
+X is a grail_seeker if X has quest grail and X is a knight_of_realm and X has skill faith.
+
+% A magic user: anyone with magic skill
+X is a magic_user if X has skill magic.
+
+% A warrior: has swordsmanship and is not a magic user
+X is a warrior if X has skill swordsmanship and X is not a magic_user.
+
+% A rival: two people who share the same skill but have different allegiances
+X is a rival of Y if X has skill S and Y has skill S and X has allegiance A and Y has allegiance B and A is not same_as B.
+
+% Royal blood: descendant of the king
+X has royal_blood yes if Arthur is an ancestor of X.
+X has royal_blood yes if X is same_as Arthur.
+
+% Rightful heir: has royal blood, is male, and is not a traitor
+X is a rightful_heir if X has royal_blood yes and X is a male and X is not a traitor.
+
+% Court member: either has a rank or is a member of the round table
+X is a court_member if X has rank R.
+X is a court_member if X is a member of round_table.
+
+% Trusted advisor: court member, not a traitor, and either a wizard or has leadership
+X is a trusted_advisor if X is a court_member and X is not a traitor and X has skill leadership.
+X is a trusted_advisor if X is a court_member and X is not a traitor and X has rank wizard.
+
+% Power couple: two people where one is male, one is female,
+% both are court members, and they share an allegiance
+X is a power_couple_with Y if X is a male and Y is a female and X is a court_member and Y is a court_member and X has allegiance A and Y has allegiance A.

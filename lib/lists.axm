@@ -1,0 +1,22 @@
+% ─── Axiom Standard Library: Lists ─────────────────────────────────
+%
+% List operations are implemented as built-in predicates in the engine:
+%   member_of/2  — X is a member_of L (checks if X is in list L)
+%   length/2     — L has length N (unifies N with length of list L)
+%
+% Usage:
+%   include "lib/lists.axm".
+%
+% Examples:
+%   Is 2 a member_of [1, 2, 3]?       → Yes.
+%   [1, 2, 3] has length 3.            → Yes. (as query)
+%
+% English wrappers for list predicates:
+
+X is in L if X is a member_of L.
+
+% length is a built-in: L has length N.
+%
+% append_of/3 is a built-in predicate (use in rules via core syntax).
+% It computes Result = A ++ B.
+% Use within rules: the engine handles append_of(Result, A, B) internally.

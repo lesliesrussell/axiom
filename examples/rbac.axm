@@ -1,0 +1,288 @@
+% ╔═══════════════════════════════════════════════════════════════════════╗
+% ║                                                                     ║
+% ║   AXIOM RBAC — Role-Based Access Control System                     ║
+% ║                                                                     ║
+% ║   A complete RBAC implementation in logic:                          ║
+% ║     • Users, roles, permissions, resources                          ║
+% ║     • Role hierarchy (inheritance)                                  ║
+% ║     • Separation of duty constraints                                ║
+% ║     • Account suspension                                            ║
+% ║     • Department-scoped access                                      ║
+% ║     • Audit queries                                                 ║
+% ║                                                                     ║
+% ║   Load:  :load examples/rbac.axm                                   ║
+% ╚═══════════════════════════════════════════════════════════════════════╝
+
+% ═══════════════════════════════════════════════════════════════════════
+%  1. USERS
+% ═══════════════════════════════════════════════════════════════════════
+
+Alice is a user.
+Bob is a user.
+Carol is a user.
+Dave is a user.
+Eve is a user.
+Frank is a user.
+Grace is a user.
+Hank is a user.
+
+Alice has department engineering.
+Bob has department engineering.
+Carol has department finance.
+Dave has department finance.
+Eve has department security.
+Frank has department operations.
+Grace has department engineering.
+Hank has department executive.
+
+% ═══════════════════════════════════════════════════════════════════════
+%  2. ROLES AND HIERARCHY
+% ═══════════════════════════════════════════════════════════════════════
+
+viewer is a role.
+editor is a role.
+approver is a role.
+admin is a role.
+auditor is a role.
+superadmin is a role.
+deployer is a role.
+
+% Hierarchy: parent inherits child's permissions
+% superadmin > admin > editor > viewer
+% superadmin > auditor
+
+editor is a parent_role of viewer.
+admin is a parent_role of editor.
+superadmin is a parent_role of admin.
+superadmin is a parent_role of auditor.
+
+% Transitive inheritance
+X is a senior_role of Y if X is a parent_role of Y.
+X is a senior_role of Y if X is a parent_role of Z and Z is a senior_role of Y.
+
+% ═══════════════════════════════════════════════════════════════════════
+%  3. ROLE ASSIGNMENTS
+% ═══════════════════════════════════════════════════════════════════════
+
+Alice has role admin.
+Bob has role editor.
+Carol has role approver.
+Dave has role viewer.
+Eve has role auditor.
+Frank has role deployer.
+Grace has role editor.
+Hank has role superadmin.
+
+% Multiple roles
+Alice has role deployer.
+Carol has role viewer.
+Carol has role editor.
+% Carol now has approver + editor — an SoD violation!
+
+% ═══════════════════════════════════════════════════════════════════════
+%  4. RESOURCES AND SENSITIVITY
+% ═══════════════════════════════════════════════════════════════════════
+
+source_code is a resource.
+database is a resource.
+prod_server is a resource.
+staging is a resource.
+financials is a resource.
+audit_logs is a resource.
+user_data is a resource.
+api_keys is a resource.
+
+source_code has sensitivity medium.
+database has sensitivity high.
+prod_server has sensitivity critical.
+staging has sensitivity medium.
+financials has sensitivity high.
+audit_logs has sensitivity high.
+user_data has sensitivity high.
+api_keys has sensitivity critical.
+
+source_code has owner engineering.
+database has owner engineering.
+prod_server has owner operations.
+staging has owner operations.
+financials has owner finance.
+audit_logs has owner security.
+user_data has owner engineering.
+api_keys has owner security.
+
+% ═══════════════════════════════════════════════════════════════════════
+%  5. PERMISSIONS
+% ═══════════════════════════════════════════════════════════════════════
+%
+%  Permissions are encoded as: <role> has grant <action_resource>.
+%  This keeps it as a clean 2-arg predicate that Axiom handles well.
+%  Convention: action_resource = read_source_code, write_database, etc.
+
+% Viewer grants
+viewer has grant read_source_code.
+viewer has grant read_staging.
+viewer has grant read_user_data.
+
+% Editor grants (adds write access)
+editor has grant write_source_code.
+editor has grant read_database.
+editor has grant write_staging.
+
+% Admin grants (adds delete/manage)
+admin has grant delete_source_code.
+admin has grant write_database.
+admin has grant manage_user_data.
+admin has grant read_api_keys.
+
+% Approver grants
+approver has grant approve_financials.
+approver has grant read_financials.
+approver has grant read_audit_logs.
+
+% Auditor grants
+auditor has grant read_audit_logs.
+auditor has grant read_financials.
+auditor has grant read_user_data.
+auditor has grant read_database.
+
+% Deployer grants
+deployer has grant deploy_prod_server.
+deployer has grant deploy_staging.
+deployer has grant write_staging.
+
+% Superadmin grants (critical resources)
+superadmin has grant manage_api_keys.
+superadmin has grant manage_prod_server.
+superadmin has grant manage_database.
+
+% ═══════════════════════════════════════════════════════════════════════
+%  6. ACCESS CONTROL RULES
+% ═══════════════════════════════════════════════════════════════════════
+
+% A role's effective grants include its own + inherited from child roles
+R has effective_grant G if R has grant G.
+R has effective_grant G if R is a senior_role of S and S has effective_grant G.
+
+% A user is authorized for a grant if they hold a role with that effective grant
+U is authorized_for G if U is a user and U has role R and R has effective_grant G.
+
+% ═══════════════════════════════════════════════════════════════════════
+%  7. ACCOUNT STATUS AND ENFORCEMENT
+% ═══════════════════════════════════════════════════════════════════════
+
+Frank is suspended.
+
+% Access gate: authorized AND not blocked
+U has access_for G if U is authorized_for G and U is not suspended and U is not locked.
+
+% ═══════════════════════════════════════════════════════════════════════
+%  8. SEPARATION OF DUTY
+% ═══════════════════════════════════════════════════════════════════════
+
+approver is incompatible_with editor.
+editor is incompatible_with approver.
+auditor is incompatible_with admin.
+admin is incompatible_with auditor.
+
+U has sod_violation yes if U is a user and U has role R1 and U has role R2 and R1 is incompatible_with R2.
+
+% ═══════════════════════════════════════════════════════════════════════
+%  9. DEPARTMENT-SCOPED ACCESS
+% ═══════════════════════════════════════════════════════════════════════
+
+U has dept_access_to R if U has department D and R has owner D.
+
+% ═══════════════════════════════════════════════════════════════════════
+%  10. SENSITIVITY-BASED POLICIES
+% ═══════════════════════════════════════════════════════════════════════
+
+% Critical resources require superadmin
+R is restricted if R has sensitivity critical.
+
+% High-sensitivity resources need at least admin or auditor
+R is sensitive if R has sensitivity high.
+
+% ═══════════════════════════════════════════════════════════════════════
+%  11. ANNOTATIONS
+% ═══════════════════════════════════════════════════════════════════════
+
+mode effective_grant(+Role, -Grant) *.
+mode authorized_for(+User, -Grant) *.
+mode access_for(+User, -Grant) *.
+mode sod_violation(+User, -Result) ?.
+mode dept_access_to(+User, +Resource) ?.
+
+% ═══════════════════════════════════════════════════════════════════════
+%  QUERIES TO TRY
+% ═══════════════════════════════════════════════════════════════════════
+%
+%  ─── Basic access ───────────────────────────────────────────────────
+%
+%    Is Alice authorized_for read_source_code?
+%      → Yes (admin > viewer > read_source_code)
+%
+%    Is Dave authorized_for write_source_code?
+%      → No (viewer can't write)
+%
+%    Is Bob authorized_for read_source_code?
+%      → Yes (editor > viewer > read_source_code)
+%
+%  ─── Suspension enforcement ─────────────────────────────────────────
+%
+%    Is Frank authorized_for deploy_prod_server?
+%      → Yes (has the role)
+%
+%    Is Frank suspended?
+%      → Yes
+%
+%    Who has access_for deploy_prod_server?
+%      → Alice (deployer role, not suspended)
+%      → Frank is excluded because suspended!
+%
+%  ─── Role hierarchy ─────────────────────────────────────────────────
+%
+%    Is superadmin a senior_role of viewer?
+%      → Yes (superadmin > admin > viewer)
+%
+%    Who is authorized_for manage_api_keys?
+%      → Hank (superadmin only)
+%
+%  ─── Who can do what? ───────────────────────────────────────────────
+%
+%    Who is authorized_for read_database?
+%      → Bob, Grace (editors), Alice, Hank (admin/super),
+%        Eve (auditor)
+%
+%    Who has access_for write_database?
+%      → Alice, Hank (admin+, not suspended)
+%
+%  ─── Separation of Duty ─────────────────────────────────────────────
+%
+%    Who has sod_violation yes?
+%      → Shows users with incompatible role combos
+%
+%  ─── Department access ──────────────────────────────────────────────
+%
+%    Is Alice dept_access_to source_code?
+%      → Yes (engineering)
+%
+%    Is Carol dept_access_to source_code?
+%      → No (finance ≠ engineering)
+%
+%  ─── Deep analysis with trace ───────────────────────────────────────
+%
+%    :trace on
+%    Is Alice authorized_for read_source_code?
+%    :trace off
+%    :why
+%
+%    Watch the engine traverse:
+%      Alice → role admin → senior_role of viewer → viewer has
+%      grant read_source_code → authorized!
+%
+%  ─── Introspection ──────────────────────────────────────────────────
+%
+%    :pred effective_grant/2
+%    :pred authorized_for/2
+%    :check
+%

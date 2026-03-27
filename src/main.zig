@@ -1,0 +1,566 @@
+const std = @import("std");
+const lexer_mod = @import("lexer.zig");
+const parser_mod = @import("parser.zig");
+const desugar_mod = @import("desugar.zig");
+const engine_mod = @import("engine.zig");
+const types = @import("types.zig");
+
+const Lexer = lexer_mod.Lexer;
+const Parser = parser_mod.Parser;
+const Desugarer = desugar_mod.Desugarer;
+const Engine = engine_mod.Engine;
+const Substitution = engine_mod.Substitution;
+const Term = types.Term;
+const Goal = types.Goal;
+const Statement = types.Statement;
+const Clause = types.Clause;
+const Determinism = types.Determinism;
+const PredicateInfo = types.PredicateInfo;
+
+const stdout_file = std.fs.File.stdout();
+
+fn output(comptime fmt: []const u8, args: anytype) void {
+    var buf: [8192]u8 = undefined;
+    const text = std.fmt.bufPrint(&buf, fmt, args) catch return;
+    stdout_file.writeAll(text) catch {};
+}
+
+fn writeStr(s: []const u8) void {
+    stdout_file.writeAll(s) catch {};
+}
+
+const Axiom = struct {
+    engine: Engine,
+    allocator: std.mem.Allocator,
+    include_stack: std.ArrayList([]const u8), // for cyclic include detection
+    last_solution: ?Substitution, // for :why
+    last_query_goals: ?[]const Goal,
+
+    fn init(allocator: std.mem.Allocator) Axiom {
+        return .{
+            .engine = Engine.init(allocator),
+            .allocator = allocator,
+            .include_stack = .empty,
+            .last_solution = null,
+            .last_query_goals = null,
+        };
+    }
+
+    fn processSource(self: *Axiom, source: []const u8) !void {
+        self.processSourceWithDir(source, null) catch |err| return err;
+    }
+
+    fn processSourceWithDir(self: *Axiom, source: []const u8, base_dir: ?[]const u8) !void {
+        var lex = Lexer.init(source);
+        const tokens = try lex.tokenize(self.allocator);
+        var parser = Parser.init(tokens, self.allocator);
+        const stmts = try parser.parseProgram();
+
+        for (stmts) |stmt| {
+            try self.processStatementWithDir(stmt, base_dir);
+        }
+    }
+
+    const ProcessError = std.mem.Allocator.Error || parser_mod.ParseError || desugar_mod.DesugarError;
+
+    fn processStatement(self: *Axiom, stmt: Statement) ProcessError!void {
+        return self.processStatementWithDir(stmt, null);
+    }
+
+    fn processStatementWithDir(self: *Axiom, stmt: Statement, base_dir: ?[]const u8) ProcessError!void {
+        switch (stmt) {
+            .command => |cmd| {
+                switch (cmd) {
+                    .load => |filename| self.loadFileNoError(filename),
+                    .show => self.showClauses(),
+                    .include => |filename| self.handleInclude(filename, base_dir),
+                }
+            },
+            .mode_decl => |decl| {
+                self.engine.registerMode(decl) catch |err| {
+                    output("Error registering mode: {}\n", .{err});
+                };
+                output("  Mode: {s}/{d}\n", .{ decl.pred_name, decl.arg_modes.len });
+            },
+            else => {
+                var desugarer = Desugarer.init(self.allocator);
+                if (try desugarer.desugar(stmt)) |result| {
+                    switch (result) {
+                        .clause => |clause| {
+                            try self.engine.addClause(clause);
+                            const det_str = if (clause.det.marker()) |m| &[_]u8{m} else "";
+                            output("  Added: {s}/{d}{s}\n", .{ clause.head.functor, clause.head.args.len, det_str });
+                        },
+                        .query => |q| {
+                            try self.runQuery(q.goals, q.variables);
+                        },
+                    }
+                }
+            },
+        }
+    }
+
+    fn runQuery(self: *Axiom, goals: []const Goal, variables: []const []const u8) !void {
+        self.last_query_goals = goals;
+        const solutions = try self.engine.solveAll(goals);
+
+        if (solutions.len == 0) {
+            writeStr("No.\n");
+            self.last_solution = null;
+            return;
+        }
+
+        if (variables.len == 0) {
+            writeStr("Yes.\n");
+            self.last_solution = solutions[0];
+            return;
+        }
+
+        // Filter to displayable variables
+        var real_vars: std.ArrayList([]const u8) = .empty;
+        for (variables) |v| {
+            try real_vars.append(self.allocator, v);
+        }
+
+        if (real_vars.items.len == 0) {
+            writeStr("Yes.\n");
+            self.last_solution = solutions[0];
+            return;
+        }
+
+        // Store first solution for :why
+        self.last_solution = solutions[0];
+
+        for (solutions) |solution| {
+            var has_output = false;
+            for (real_vars.items) |varname| {
+                const resolved = try solution.deepWalk(.{ .variable = varname }, self.allocator);
+                switch (resolved) {
+                    .variable => |v| {
+                        if (std.mem.eql(u8, v, varname)) continue;
+                        if (isRenamedVar(varname, v)) continue;
+                    },
+                    else => {},
+                }
+                if (has_output) writeStr(", ");
+                const display_name = if (std.mem.startsWith(u8, varname, "_"))
+                    varname[1..]
+                else
+                    varname;
+                output("{s} = ", .{display_name});
+                printTerm(resolved);
+                has_output = true;
+            }
+            if (has_output) {
+                writeStr("\n");
+            }
+        }
+    }
+
+    // ─── Include handling ──────────────────────────────────────────────
+
+    fn handleInclude(self: *Axiom, filename: []const u8, base_dir: ?[]const u8) void {
+        self.doInclude(filename, base_dir) catch |err| {
+            output("Error including '{s}': {}\n", .{ filename, err });
+        };
+    }
+
+    fn doInclude(self: *Axiom, filename: []const u8, base_dir: ?[]const u8) !void {
+        // Check for cyclic includes
+        for (self.include_stack.items) |included| {
+            if (std.mem.eql(u8, included, filename)) {
+                output("Error: cyclic include detected for '{s}'\n", .{filename});
+                return;
+            }
+        }
+
+        try self.include_stack.append(self.allocator, filename);
+        defer _ = self.include_stack.pop();
+
+        // Resolve path relative to including file's directory
+        const resolved = if (base_dir) |dir|
+            try std.fmt.allocPrint(self.allocator, "{s}/{s}", .{ dir, filename })
+        else
+            filename;
+
+        const source = std.fs.cwd().readFileAlloc(self.allocator, resolved, 1024 * 1024) catch |err| {
+            output("Error loading '{s}': {}\n", .{ resolved, err });
+            return;
+        };
+
+        // Compute the directory of the included file for nested includes
+        const new_dir = if (std.mem.lastIndexOfScalar(u8, resolved, '/')) |pos|
+            resolved[0..pos]
+        else
+            base_dir;
+
+        try self.processSourceWithDir(source, new_dir);
+    }
+
+    // ─── File loading ──────────────────────────────────────────────────
+
+    fn loadFileNoError(self: *Axiom, filename: []const u8) void {
+        self.loadFile(filename) catch |err| {
+            output("Error loading: {}\n", .{err});
+        };
+    }
+
+    fn loadFile(self: *Axiom, filename: []const u8) !void {
+        const source = std.fs.cwd().readFileAlloc(self.allocator, filename, 1024 * 1024) catch blk: {
+            const with_ext = try std.fmt.allocPrint(self.allocator, "{s}.axm", .{filename});
+            break :blk std.fs.cwd().readFileAlloc(self.allocator, with_ext, 1024 * 1024) catch |err| {
+                output("Error loading '{s}': {}\n", .{ filename, err });
+                return;
+            };
+        };
+
+        // Compute base directory for includes
+        const base_dir = if (std.mem.lastIndexOfScalar(u8, filename, '/')) |pos|
+            filename[0..pos]
+        else
+            null;
+
+        try self.processSourceWithDir(source, base_dir);
+        output("Loaded '{s}'.\n", .{filename});
+    }
+
+    fn showClauses(self: *Axiom) void {
+        const clauses = self.engine.getClauses();
+        if (clauses.len == 0) {
+            writeStr("No clauses loaded.\n");
+            return;
+        }
+        for (clauses, 0..) |clause, i| {
+            output("{d}: {s}(", .{ i + 1, clause.head.functor });
+            for (clause.head.args, 0..) |arg, j| {
+                if (j > 0) writeStr(", ");
+                printTerm(arg);
+            }
+            writeStr(")");
+            // Show determinism marker if declared
+            if (clause.det.marker()) |m| {
+                const marker_str = &[_]u8{m};
+                writeStr(marker_str);
+            }
+            if (clause.body.len > 0) {
+                writeStr(" :- ");
+                for (clause.body, 0..) |goal, j| {
+                    if (j > 0) writeStr(", ");
+                    printGoal(goal);
+                }
+            }
+            writeStr(".\n");
+        }
+    }
+
+    fn showPredInfo(self: *Axiom, spec: []const u8) void {
+        // Parse "name/arity"
+        const slash = std.mem.indexOfScalar(u8, spec, '/') orelse {
+            output("Usage: :pred <name>/<arity>  (e.g., :pred mortal/1)\n", .{});
+            return;
+        };
+        const name = spec[0..slash];
+        const arity_str = spec[slash + 1 ..];
+        const arity = std.fmt.parseInt(u8, arity_str, 10) catch {
+            output("Invalid arity: '{s}'\n", .{arity_str});
+            return;
+        };
+
+        if (self.engine.getPredInfo(name, arity)) |info| {
+            output("{s}/{d}\n", .{ info.name, info.arity });
+            output("  determinism: {s}\n", .{info.det.label()});
+            if (info.arg_modes) |modes| {
+                writeStr("  modes: (");
+                for (modes, 0..) |m, idx| {
+                    if (idx > 0) writeStr(", ");
+                    const marker_str = &[_]u8{m.marker()};
+                    writeStr(marker_str);
+                }
+                writeStr(")\n");
+            } else {
+                writeStr("  modes: not declared\n");
+            }
+
+            // Count clauses
+            var count: usize = 0;
+            for (self.engine.getClauses()) |clause| {
+                if (std.mem.eql(u8, clause.head.functor, name) and clause.head.args.len == arity) {
+                    count += 1;
+                }
+            }
+            output("  clauses: {d}\n", .{count});
+        } else {
+            output("No info for {s}/{d}. Predicate not found.\n", .{ name, arity });
+        }
+    }
+
+    fn runChecks(self: *Axiom) void {
+        writeStr("Running determinism and mode checks...\n");
+        self.engine.runChecks() catch |err| {
+            output("Error during checks: {}\n", .{err});
+        };
+        writeStr("Checks complete.\n");
+    }
+
+    fn repl(self: *Axiom) !void {
+        writeStr("Axiom v0.3 — A Prolog-style logic language with controlled-English syntax\n");
+        writeStr("Commands: :load, :show, :trace, :why, :pred, :check, :help, :quit\n\n");
+
+        const stdin_file = std.fs.File.stdin();
+        var line_buf: [4096]u8 = undefined;
+        var remaining: []u8 = &.{};
+        _ = &remaining;
+
+        while (true) {
+            writeStr("axiom> ");
+
+            const n = stdin_file.read(&line_buf) catch |err| {
+                output("Read error: {}\n", .{err});
+                continue;
+            };
+
+            if (n == 0) break;
+
+            var data = line_buf[0..n];
+            while (data.len > 0) {
+                const nl_pos = std.mem.indexOfScalar(u8, data, '\n');
+                const line = if (nl_pos) |pos| data[0..pos] else data;
+                data = if (nl_pos) |pos| data[pos + 1 ..] else &.{};
+
+                const input = std.mem.trim(u8, line, &std.ascii.whitespace);
+                if (input.len == 0) continue;
+
+                // REPL commands
+                if (std.mem.eql(u8, input, ":quit") or std.mem.eql(u8, input, ":q")) {
+                    writeStr("Goodbye.\n");
+                    return;
+                }
+
+                if (std.mem.startsWith(u8, input, ":load ")) {
+                    const filename = std.mem.trim(u8, input[6..], &std.ascii.whitespace);
+                    self.loadFile(filename) catch |err| {
+                        output("Error: {}\n", .{err});
+                    };
+                    continue;
+                }
+
+                if (std.mem.eql(u8, input, ":show")) {
+                    self.showClauses();
+                    continue;
+                }
+
+                // Trace commands
+                if (std.mem.eql(u8, input, ":trace on")) {
+                    self.engine.trace_enabled = true;
+                    writeStr("Trace: ON\n");
+                    continue;
+                }
+                if (std.mem.eql(u8, input, ":trace off")) {
+                    self.engine.trace_enabled = false;
+                    writeStr("Trace: OFF\n");
+                    continue;
+                }
+                if (std.mem.eql(u8, input, ":trace")) {
+                    if (self.engine.trace_enabled) {
+                        writeStr("Trace is ON\n");
+                    } else {
+                        writeStr("Trace is OFF\n");
+                    }
+                    continue;
+                }
+
+                // Why command
+                if (std.mem.eql(u8, input, ":why")) {
+                    if (self.last_solution) |sol| {
+                        self.engine.explainLastProof(&sol);
+                    } else {
+                        writeStr("No successful query to explain. Run a query first.\n");
+                    }
+                    continue;
+                }
+
+                // :pred Name/Arity
+                if (std.mem.startsWith(u8, input, ":pred ")) {
+                    self.showPredInfo(std.mem.trim(u8, input[6..], &std.ascii.whitespace));
+                    continue;
+                }
+
+                // :check
+                if (std.mem.eql(u8, input, ":check")) {
+                    self.runChecks();
+                    continue;
+                }
+
+                // Help
+                if (std.mem.eql(u8, input, ":help")) {
+                    self.printHelp();
+                    continue;
+                }
+
+                // Process as Axiom source
+                self.processSourceHandleError(input);
+            }
+        }
+    }
+
+    fn printHelp(_: *Axiom) void {
+        writeStr(
+            \\Commands:
+            \\  :load <file>     Load an .axm file
+            \\  :show            List all loaded clauses
+            \\  :trace on/off    Toggle execution tracing
+            \\  :trace           Show current trace status
+            \\  :why             Explain the last successful query
+            \\  :pred name/arity Show predicate info (determinism, modes)
+            \\  :check           Run determinism and mode checks
+            \\  :help            Show this help
+            \\  :quit / :q       Exit the REPL
+            \\
+            \\Syntax:
+            \\  Facts:    Socrates is a man.
+            \\  Rules:    X is mortal if X is a man.
+            \\  Queries:  Is Socrates mortal?  /  Who is mortal?
+            \\  Negation: X is not banned.
+            \\  Include:  include "file.axm".
+            \\  Det:      X is a Y! if ...   (! det, ? semidet, * nondet)
+            \\  Mode:     mode pred(+In, -Out) !.
+            \\
+            \\
+        );
+    }
+
+    fn processSourceHandleError(self: *Axiom, input: []const u8) void {
+        var lex = Lexer.init(input);
+        const tokens = lex.tokenize(self.allocator) catch |err| {
+            output("Error: {}\n", .{err});
+            return;
+        };
+        var parser = Parser.init(tokens, self.allocator);
+
+        // Try parsing each statement individually for better error reporting
+        while (parser.peek().tag != .eof) {
+            if (parser.parseStatement()) |stmt| {
+                self.processStatementWithDir(stmt, null) catch |err| {
+                    self.printParseErrorWithPos(input, err, 0, 0, "");
+                };
+            } else |_| {
+                // Report the error with position info
+                self.printParseErrorWithPos(input, error.UnexpectedToken, parser.last_error_line, parser.last_error_col, parser.last_error_token);
+                parser.recover();
+            }
+        }
+    }
+
+    fn printParseErrorWithPos(_: *Axiom, input: []const u8, err: anyerror, line: usize, col: usize, token: []const u8) void {
+        switch (err) {
+            error.UnexpectedToken => {
+                if (line > 0) {
+                    output("Parse error at line {d}, column {d}", .{ line, col });
+                    if (token.len > 0) {
+                        output(" near \"{s}\"", .{token});
+                    }
+                    writeStr(":\n");
+                } else {
+                    output("Parse error in: \"{s}\"\n", .{input});
+                }
+                writeStr("  Expected a sentence like:\n");
+                writeStr("    \"X is a Y.\"  or  \"X has Y Z.\"  or  \"X is Y if ...\".\n");
+                writeStr("  Queries start with: Is, Who, What, Which, Can\n");
+            },
+            error.UnexpectedEof => {
+                writeStr("Parse error: unexpected end of input.\n");
+                writeStr("  Did you forget a '.' or '?' at the end?\n");
+            },
+            error.OutOfMemory => writeStr("Error: out of memory.\n"),
+            error.InvalidPattern => {
+                output("Desugar error in: \"{s}\"\n", .{input});
+                writeStr("  Could not translate this sentence pattern to logic.\n");
+                writeStr("  Try: \"X is a Y.\", \"X has Y Z.\", or \"X is Y of Z.\"\n");
+            },
+            else => output("Error: {}\n", .{err}),
+        }
+    }
+};
+
+fn printTerm(term: Term) void {
+    switch (term) {
+        .atom => |a| output("{s}", .{a}),
+        .variable => |v| output("{s}", .{v}),
+        .integer => |i| output("{d}", .{i}),
+        .nil => writeStr("[]"),
+        .compound => |c| {
+            output("{s}(", .{c.functor});
+            for (c.args, 0..) |arg, idx| {
+                if (idx > 0) writeStr(", ");
+                printTerm(arg);
+            }
+            writeStr(")");
+        },
+        .list => |l| {
+            writeStr("[");
+            printTerm(l.head.*);
+            var tail = l.tail;
+            while (true) {
+                switch (tail.*) {
+                    .list => |next| {
+                        writeStr(", ");
+                        printTerm(next.head.*);
+                        tail = next.tail;
+                    },
+                    .nil => break,
+                    else => {
+                        writeStr(" | ");
+                        printTerm(tail.*);
+                        break;
+                    },
+                }
+            }
+            writeStr("]");
+        },
+    }
+}
+
+fn printGoal(goal: Goal) void {
+    switch (goal) {
+        .call => |c| {
+            output("{s}(", .{c.functor});
+            for (c.args, 0..) |arg, i| {
+                if (i > 0) writeStr(", ");
+                printTerm(arg);
+            }
+            writeStr(")");
+        },
+        .not => |inner| {
+            writeStr("\\+ ");
+            printGoal(inner.*);
+        },
+        .cut => writeStr("!"),
+    }
+}
+
+fn isRenamedVar(original: []const u8, resolved: []const u8) bool {
+    if (!std.mem.startsWith(u8, resolved, original)) return false;
+    if (resolved.len <= original.len) return false;
+    return resolved[original.len] == '_';
+}
+
+pub fn main() !void {
+    var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    var axiom = Axiom.init(allocator);
+
+    const args = try std.process.argsAlloc(allocator);
+    defer std.process.argsFree(allocator, args);
+
+    if (args.len > 1) {
+        for (args[1..]) |arg| {
+            axiom.loadFile(arg) catch |err| {
+                output("Error: {}\n", .{err});
+            };
+        }
+    }
+
+    try axiom.repl();
+}

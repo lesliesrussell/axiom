@@ -1,0 +1,6 @@
+John is a person.
+Mary is a person.
+John is a parent of Mary.
+
+X is an ancestor of Y if X is a parent of Y.
+X is an ancestor of Y if X is a parent of Z and Z is an ancestor of Y.

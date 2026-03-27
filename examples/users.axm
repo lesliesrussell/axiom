@@ -1,0 +1,3 @@
+Leslie is a user.
+Leslie has role admin.
+X is an admin_user if X is a user and X has role admin.

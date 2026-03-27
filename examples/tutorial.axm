@@ -1,0 +1,717 @@
+% ╔═══════════════════════════════════════════════════════════════════════╗
+% ║                                                                     ║
+% ║          LEARN AXIOM v0.2 — An Interactive Tutorial                 ║
+% ║                                                                     ║
+% ║   Axiom is a logic language where you write in English              ║
+% ║   and the computer reasons about what you said.                     ║
+% ║                                                                     ║
+% ║   25 lessons covering facts, rules, queries, negation,             ║
+% ║   recursion, math, lists, tracing, includes, and more.             ║
+% ║                                                                     ║
+% ║   Load this file:   :load examples/tutorial.axm                    ║
+% ║   Then follow along by typing the queries shown in each lesson.     ║
+% ║                                                                     ║
+% ╚═══════════════════════════════════════════════════════════════════════╝
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 1: Facts — Telling Axiom What Is True
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  A fact is a simple statement that ends with a period.
+%  Axiom remembers everything you tell it.
+%
+%  The pattern "X is a Y" means X belongs to category Y.
+%
+%     Try these queries after loading this file:
+%       Is Luna a cat?
+%       Is Bella a cat?
+%       Is Rex a cat?
+%
+
+Luna is a cat.
+Bella is a cat.
+Rex is a dog.
+Milo is a dog.
+Goldie is a fish.
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 2: Asking Questions — Yes or No
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Start a question with "Is" and end it with "?"
+%
+%     Try:
+%       Is Luna a cat?          → Yes.
+%       Is Rex a cat?           → No.
+%       Is Rex a dog?           → Yes.
+%       Is Goldie a dog?        → No.
+%       Is Goldie a fish?       → Yes.
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 3: Who Questions — Finding Things
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  "Who" questions search for everything that matches.
+%
+%     Try:
+%       Who is a cat?           → Luna, Bella
+%       Who is a dog?           → Rex, Milo
+%       Who is a fish?          → Goldie
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 4: Properties — Things Can Have Stuff
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  "X has Y Z" means X has a property Y with value Z.
+%
+%     Try:
+%       Is Luna fluffy?         → Yes.
+%       Is Rex fluffy?          → No.
+%       Who is fluffy?          → Luna, Milo
+%
+
+Luna is fluffy.
+Milo is fluffy.
+Rex is brave.
+Bella is lazy.
+
+Luna has color orange.
+Bella has color black.
+Rex has color brown.
+Milo has color white.
+Goldie has color gold.
+
+Luna has age 3.
+Bella has age 7.
+Rex has age 5.
+Milo has age 2.
+Goldie has age 1.
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 5: Rules — Teaching Axiom to Think
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Rules let Axiom figure things out on its own!
+%  A rule says: "X is a Y if <some condition>."
+%
+%  This is where the magic happens. You tell Axiom WHAT
+%  makes something true, and it works out WHO fits.
+%
+%     Try:
+%       Who is a pet?           → Luna, Bella, Rex, Milo, Goldie
+%       Is Goldie a pet?        → Yes.
+%
+
+X is a pet if X is a cat.
+X is a pet if X is a dog.
+X is a pet if X is a fish.
+
+%
+%  See what happened? We never said "Goldie is a pet" directly.
+%  But Axiom figured it out because:
+%    1. Goldie is a fish.       (fact)
+%    2. X is a pet if X is a fish.   (rule)
+%    3. Therefore: Goldie is a pet!  (inference)
+%
+%  That's logic programming! You describe relationships,
+%  and the computer does the reasoning.
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 6: Multiple Conditions — "and"
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Rules can require multiple things to be true using "and".
+%
+%     Try:
+%       Who is a cuddly_pet?    → Luna, Milo
+%       Is Rex a cuddly_pet?    → No. (brave but not fluffy)
+%       Is Bella a cuddly_pet?  → No. (cat but lazy, not fluffy)
+%
+
+X is a cuddly_pet if X is a pet and X is fluffy.
+
+%
+%  Luna is cuddly because she is a pet AND she is fluffy.
+%  Rex is a pet but NOT fluffy, so he's not cuddly. Sorry Rex.
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 7: Negation — "is not"
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Sometimes you need to say "NOT this". Use "is not".
+%
+%     Try:
+%       Who is an active_pet?   → Rex
+%       Is Bella an active_pet? → No. (she's lazy)
+%       Is Luna an active_pet?  → No. (she's not brave)
+%
+
+X is an active_pet if X is a pet and X is brave and X is not lazy.
+
+%
+%  Rex is active because:
+%    ✓ Rex is a pet (he's a dog)
+%    ✓ Rex is brave
+%    ✓ Rex is NOT lazy
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 8: Relationships — Connecting Things
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  "X is a Y of Z" creates a relationship between X and Z.
+%
+%     Try:
+%       Who is an owner of Luna?     → Alice
+%       Who is an owner of Rex?      → Bob
+%
+
+Alice is a person.
+Bob is a person.
+Carol is a person.
+
+Alice is an owner of Luna.
+Alice is an owner of Bella.
+Bob is an owner of Rex.
+Bob is an owner of Milo.
+Carol is an owner of Goldie.
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 9: Chaining Rules — Building on Rules
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Rules can use other rules! This is where it gets powerful.
+%
+%     Try:
+%       Who is a cat_person?    → Alice (twice — she owns two cats!)
+%       Who is a dog_person?    → Bob (twice — he owns two dogs!)
+%       Is Carol a cat_person?  → No. (she owns a fish)
+%
+
+X is a cat_person if X is an owner of Y and Y is a cat.
+X is a dog_person if X is an owner of Y and Y is a dog.
+X is a fish_person if X is an owner of Y and Y is a fish.
+
+%
+%  Notice how this chains together:
+%    1. Alice is an owner of Luna.   (fact)
+%    2. Luna is a cat.               (fact)
+%    3. X is a cat_person if X is an owner of Y and Y is a cat. (rule)
+%    4. Therefore: Alice is a cat_person!
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 10: The "Every" Shortcut
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Writing "Every X is Y" is a shortcut for a rule.
+%
+%  "Every cat is curious." means the same thing as:
+%  "X is curious if X is a cat."
+%
+%     Try:
+%       Is Luna curious?        → Yes. (she's a cat)
+%       Is Rex curious?         → No.  (he's a dog)
+%       Who is curious?         → Luna, Bella
+%
+
+Every cat is curious.
+Every dog is loyal.
+
+%
+%     Try:
+%       Who is loyal?           → Rex, Milo
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 11: "has" Properties — Rich Data
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Use "has" to give things named properties.
+%  Then query them with "Which" questions!
+%
+%     Try:
+%       Which pets have color orange?    → Luna
+%       Which pets have color brown?     → Rex
+%
+
+%
+%  The "Which <type> have <prop> <val>?" pattern searches
+%  for things with a specific property value.
+%
+%  You can also ask about properties in rules:
+%
+
+X is a golden_pet if X is a pet and X has color gold.
+
+%
+%     Try:
+%       Who is a golden_pet?    → Goldie
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 12: Recursion — Rules That Call Themselves
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  This is the most powerful feature. A rule can use ITSELF!
+%
+%  Let's build a family tree for our pet owners.
+%
+
+Dave is a person.
+Eve is a person.
+
+Dave is a parent of Alice.
+Dave is a parent of Bob.
+Eve is a parent of Carol.
+Alice is a parent of Frank.
+
+Frank is a person.
+
+%
+%  Now the magic: ancestor is defined recursively.
+%  "X is an ancestor of Y" if:
+%    - X is directly a parent of Y, OR
+%    - X is a parent of someone who is an ancestor of Y
+%
+
+X is an ancestor of Y if X is a parent of Y.
+X is an ancestor of Y if X is a parent of Z and Z is an ancestor of Y.
+
+%
+%     Try:
+%       Is Dave an ancestor of Alice?    → Yes. (parent)
+%       Is Dave an ancestor of Frank?    → Yes. (grandparent!)
+%       Who is an ancestor of Frank?     → Alice, Dave
+%       Is Eve an ancestor of Frank?     → No.
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 13: The "Can" Pattern
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  "X can <verb> <particle>" creates capability predicates.
+%  Ask about them with "Can X <verb> <particle>?"
+%
+
+X can adopt more if X is a person and X is not an owner of Y.
+
+%
+%  Hmm, that won't quite work because everyone is an owner.
+%  Let's try a different capability:
+%
+
+X can enter shows if X is an owner of Y and Y is a cat and Y is fluffy.
+
+%
+%     Try:
+%       Can Alice enter shows?  → Yes. (owns Luna, a fluffy cat)
+%       Can Bob enter shows?    → No.  (owns dogs, not fluffy cats)
+%       Can Carol enter shows?  → No.  (owns a fish)
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 14: Multiple Rules = Choices
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  If you write TWO rules for the same predicate, Axiom
+%  treats them as alternatives. Like saying "OR".
+%
+
+X is an animal_lover if X is a cat_person.
+X is an animal_lover if X is a dog_person.
+X is an animal_lover if X is a fish_person.
+
+%
+%     Try:
+%       Who is an animal_lover?  → Alice, Bob, Carol (some appear
+%                                  multiple times — one per path!)
+%       Is Alice an animal_lover? → Yes.
+%
+%  Alice qualifies through the cat_person rule.
+%  Bob qualifies through the dog_person rule.
+%  Carol qualifies through the fish_person rule.
+%  Three different paths, all valid!
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 15: Putting It All Together
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Let's build something complex that uses everything we learned:
+%  a "Best in Show" competition!
+%
+
+X is a show_entry if X is a pet and X is fluffy.
+X is a show_entry if X is a pet and X is brave.
+
+X is a show_winner if X is a show_entry and X is a cuddly_pet.
+X is a show_runner_up if X is a show_entry and X is not a cuddly_pet.
+
+X is a proud_owner if X is an owner of Y and Y is a show_winner.
+
+%
+%     Try:
+%       Who is a show_entry?      → Luna, Milo, Rex
+%       Who is a show_winner?     → Luna, Milo (fluffy AND cuddly)
+%       Who is a show_runner_up?  → Rex (brave but not cuddly)
+%       Who is a proud_owner?     → Alice (owns Luna), Bob (owns Milo)
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 16: Using :show to See What Axiom Knows
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Type :show to see ALL the facts and rules that are loaded.
+%  Each one shows the internal Prolog-style representation.
+%
+%     Try:
+%       :show
+%
+%  You'll see things like:
+%     1: cat(luna).
+%     2: cat(bella).
+%     3: pet(X) :- cat(X).
+%     ...
+%
+%  This is what Axiom is REALLY doing under the hood.
+%  Your English sentences get translated into logic!
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 17: Add Your Own Facts Live!
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  You don't have to put everything in a file.
+%  Just type facts and rules directly into the REPL!
+%
+%     Try typing these yourself:
+%       Ziggy is a cat.
+%       Ziggy is fluffy.
+%       Is Ziggy a pet?          → Yes! (inferred from the cat rule)
+%       Is Ziggy a cuddly_pet?   → Yes! (pet AND fluffy)
+%       Can Alice enter shows?   → Yes! (still true)
+%
+%  Now try:
+%       Alice is an owner of Ziggy.
+%       Who is a show_winner?    → Luna, Milo, AND Ziggy!
+%
+%  You're extending the knowledge base in real time.
+%  Every new fact can trigger new inferences!
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 18: Numbers and Math — Built-in Comparisons  [NEW in v0.2]
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Axiom has built-in integer comparisons!
+%  Use them directly or in rules.
+%
+%     Try:
+%       Is 3 less_than 5?          → Yes.
+%       Is 10 greater_than 7?      → Yes.
+%       Is 5 equal 5?              → Yes.
+%       Is 99 less_than 50?        → No.
+%
+
+%  Ages were already declared in Lesson 4 (Luna=3, Bella=7, Rex=5).
+%  Now use math in a rule — find "senior" pets (age > 4):
+
+X is a senior_pet if X is a pet and X has age N and N is greater_than 4.
+
+%
+%     Try:
+%       Who is a senior_pet?       → Bella (7), Rex (5)
+%       Is Luna a senior_pet?      → No. (age 3)
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 19: Lists and Membership  [NEW in v0.2]
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Lists use bracket syntax: [1, 2, 3]
+%  The built-in member_of checks if something is in a list.
+%
+%     Try:
+%       Is 2 a member_of [1, 2, 3]?    → Yes.
+%       Is 5 a member_of [1, 2, 3]?    → No.
+%
+
+favorites has list [luna, rex, goldie].
+
+%
+%  You can combine lists with rules too:
+%  (Note: member_of works on list terms directly)
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 20: Include — Reusing Code  [NEW in v0.2]
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Split your program into multiple files using include!
+%
+%  The standard library has two files you can include:
+%    include "lib/math.axm".    — smaller_than, bigger_than, equal_to
+%    include "lib/lists.axm".   — is in (list membership wrapper)
+%
+%  Include paths are relative to the file that includes them.
+%
+%  Axiom detects cyclic includes (A includes B includes A)
+%  and stops with an error instead of looping forever.
+%
+%     Try typing this live:
+%       include "lib/math.axm".
+%       Is 3 smaller_than 10?     → Yes. (wrapper for less_than)
+%       Is 10 bigger_than 3?      → Yes. (wrapper for greater_than)
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 21: Trace — Watch the Engine Think  [NEW in v0.2]
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Ever wonder HOW Axiom figures out the answer?
+%  Turn on tracing and watch it work step by step!
+%
+%     Try:
+%       :trace on
+%       Is Luna a cuddly_pet?
+%
+%  You'll see:
+%    [CALL] cuddly_pet(luna)
+%    [EXIT] cuddly_pet(luna)
+%      [CALL] pet(luna)
+%      [EXIT] pet(luna)
+%        [CALL] cat(luna)
+%        [EXIT] cat(luna)
+%        [CALL] fluffy(luna)
+%        [EXIT] fluffy(luna)
+%    Yes.
+%
+%  Each [CALL] is the engine trying to prove something.
+%  Each [EXIT] means it succeeded.
+%  [FAIL] means it tried and couldn't.
+%  [REDO] means it's backtracking to try another path.
+%
+%  Indentation shows the depth — deeper = further into the proof.
+%
+%     Try with a failing query:
+%       :trace on
+%       Is Rex a cuddly_pet?
+%       :trace off
+%
+%  You'll see it try the fluffy check and [FAIL].
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 22: Why — Understand the Proof  [NEW in v0.2]
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  After a query succeeds, ask :why to see the proof tree.
+%
+%     Try:
+%       Is Luna a cuddly_pet?
+%       :why
+%
+%  You'll see:
+%    Because:
+%      - cuddly_pet(luna)  [rule]
+%        - pet(X)  [fact]
+%        - fluffy(X)  [fact]
+%
+%  This tells you:
+%    1. cuddly_pet was proven using a RULE
+%    2. That rule needed pet(X) — proven by a fact
+%    3. And fluffy(X) — also proven by a fact
+%
+%  Try it on something more complex:
+%       Who is an ancestor of Frank?
+%       :why
+%
+%  The proof tree shows the recursive chain!
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 23: Who Has — Searching by Property  [NEW in v0.2]
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  "Who has <property> <value>?" finds things by their properties.
+%
+%     Try:
+%       Who has color orange?      → Luna
+%       Who has color black?       → Bella
+%
+%  This is great for searching when you know the property
+%  but not who has it.
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 24: Error Messages  [NEW in v0.2]
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  When you make a syntax mistake, Axiom now tells you exactly
+%  WHERE it went wrong and WHAT it expected.
+%
+%     Try typing some nonsense:
+%       X broken here.
+%       the cat the mat.
+%       42 + 7.
+%
+%  You'll get messages like:
+%    Parse error at line 1, column 3 near "broken":
+%      Expected a sentence like:
+%        "X is a Y."  or  "X has Y Z."  or  "X is Y if ...".
+%      Queries start with: Is, Who, What, Which, Can
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  LESSON 25: Putting It All Together — v0.2 Style
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Let's combine everything. Here's a pet adoption scoring system
+%  that uses math, negation, and properties together.
+%
+
+X has adoption_score 10 if X is a cuddly_pet.
+X has adoption_score 7 if X is a pet and X is brave.
+X has adoption_score 5 if X is a pet and X is not fluffy and X is not brave.
+
+X is highly_adoptable if X has adoption_score S and S is greater_than 6.
+
+%
+%     Try:
+%       Who is highly_adoptable?           → Luna, Milo, Rex
+%       Who has adoption_score 10?         → Luna, Milo
+%       Who has adoption_score 7?          → Rex
+%
+%     Now trace it to see the full inference:
+%       :trace on
+%       Is Luna highly_adoptable?
+%       :trace off
+%
+%     And explain it:
+%       Is Luna highly_adoptable?
+%       :why
+%
+
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  CHEAT SHEET
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  ┌────────────────────────────────────────────────────────────────────┐
+%  │ FACTS (declare truths)                                            │
+%  │   Luna is a cat.               → cat(luna)                        │
+%  │   Luna has color orange.       → color(luna, orange)              │
+%  │   Alice is an owner of Luna.   → owner(alice, luna)               │
+%  │   Luna is fluffy.              → fluffy(luna)                     │
+%  │   Luna is connected_to Bella.  → connected_to(luna, bella)        │
+%  ├────────────────────────────────────────────────────────────────────┤
+%  │ RULES (define inference)                                          │
+%  │   X is a pet if X is a cat.    → pet(X) :- cat(X)                │
+%  │   X is Y if ... and ... .      → multiple conditions with "and"   │
+%  │   X is Y if ... and X is not Z.→ negation with "is not"           │
+%  │   Every cat is curious.        → curious(X) :- cat(X)            │
+%  ├────────────────────────────────────────────────────────────────────┤
+%  │ QUERIES (ask questions)                                           │
+%  │   Is Luna a cat?               → yes/no answer                    │
+%  │   Who is a cat?                → lists all matches                │
+%  │   Which pets have color gold?  → searches by property             │
+%  │   Can Alice enter shows?       → tests capability                 │
+%  ├────────────────────────────────────────────────────────────────────┤
+%  │ QUERIES (ask questions)                                           │
+%  │   Is Luna a cat?               → yes/no answer                    │
+%  │   Who is a cat?                → lists all matches                │
+%  │   Who has color orange?        → search by property               │
+%  │   Which pets have color gold?  → searches by property             │
+%  │   Can Alice enter shows?       → tests capability                 │
+%  │   Is 3 less_than 5?            → built-in math comparison         │
+%  │   Is 2 a member_of [1,2,3]?   → built-in list check              │
+%  ├────────────────────────────────────────────────────────────────────┤
+%  │ COMMANDS                                                          │
+%  │   :load <file>                 → load an .axm file                │
+%  │   :show                        → list all loaded clauses          │
+%  │   :trace on/off                → watch the engine reason          │
+%  │   :why                         → explain the last answer          │
+%  │   :help                        → show command help                │
+%  │   :quit                        → exit the REPL                    │
+%  ├────────────────────────────────────────────────────────────────────┤
+%  │ INCLUDES & STDLIB                                                 │
+%  │   include "lib/math.axm".     → smaller_than, bigger_than         │
+%  │   include "lib/lists.axm".    → is in (list membership)           │
+%  ├────────────────────────────────────────────────────────────────────┤
+%  │ BUILT-IN PREDICATES                                               │
+%  │   less_than/2, greater_than/2, equal/2  → integer comparisons     │
+%  │   member_of/2                           → list membership         │
+%  │   length/2                              → list length             │
+%  │   same_as/2                             → unification check       │
+%  ├────────────────────────────────────────────────────────────────────┤
+%  │ TIPS                                                              │
+%  │   • Capitalized words in FACTS are names (atoms): Socrates, Luna  │
+%  │   • Capitalized words in RULES are variables: X, Y, Person       │
+%  │   • Single letters (X, Y, Z) are always variables                │
+%  │   • Comments start with %                                         │
+%  │   • Sentences end with . (facts/rules) or ? (queries)            │
+%  │   • Don't use "the" — use "a" or "an" instead                    │
+%  │   • Underscores are fine in names: cuddly_pet, exit_gate          │
+%  │   • Use :trace to debug why a query fails                        │
+%  │   • Use :why to understand how an answer was derived             │
+%  └────────────────────────────────────────────────────────────────────┘
+%
+% ═════════════════════════════════════════════════════════════════════════
+%  WHAT NEXT?
+% ═════════════════════════════════════════════════════════════════════════
+%
+%  Now that you know Axiom, try these example files:
+%
+%    :load examples/kingdom.axm       — A medieval kingdom with complex
+%                                       logic about knights, heroes,
+%                                       heirs, and political intrigue
+%
+%    :load examples/dungeon.axm       — A dungeon crawler game played
+%                                       entirely through logic queries!
+%
+%    :load examples/space_academy.axm — A space academy that shows off
+%                                       every v0.2 feature: math, trace,
+%                                       includes, and proof trees
+%
+%  Or build your own! Some ideas:
+%    • A recipe book (ingredients, steps, dietary restrictions)
+%    • A family tree (parents, ancestors, siblings, cousins)
+%    • A classification system (animals, plants, minerals)
+%    • An access control system (users, roles, permissions)
+%    • A choose-your-own-adventure game
+%
+%  Use :trace to debug, :why to understand, and include to organize.
+%
+%  Read docs/language.md for the full language reference.
+%
+%  Happy reasoning!
+%

@@ -1,0 +1,170 @@
+% ╔═══════════════════════════════════════════════════════════════════════╗
+% ║                  AXIOM SPACE ACADEMY  —  Clean v0.2 Showcase          ║
+% ║                        Optimized for clarity and performance          ║
+% ╚═══════════════════════════════════════════════════════════════════════╝
+
+% ─── Load Standard Library ─────────────────────────────────────────────
+include "../lib/math.axm".
+include "../lib/lists.axm".
+
+% ═══════════════════════════════════════════════════════════════════
+% FACTS — THE ACADEMY
+% ═══════════════════════════════════════════════════════════════════
+
+% Cadets
+Zara is a cadet.
+Kai is a cadet.
+Nova is a cadet.
+Rex is a cadet.
+Luma is a cadet.
+Jett is a cadet.
+
+% Specializations
+Zara has specialization pilot.
+Kai has specialization engineer.
+Nova has specialization scientist.
+Rex has specialization pilot.
+Luma has specialization medic.
+Jett has specialization engineer.
+
+% Exam scores
+Zara has score 92.
+Kai has score 88.
+Nova has score 95.
+Rex has score 71.
+Luma has score 84.
+Jett has score 67.
+
+% Flight hours
+Zara has flight_hours 340.
+Kai has flight_hours 120.
+Nova has flight_hours 200.
+Rex has flight_hours 410.
+Luma has flight_hours 90.
+Jett has flight_hours 50.
+
+% Missions completed
+Zara has missions 12.
+Kai has missions 8.
+Nova has missions 15.
+Rex has missions 6.
+Luma has missions 9.
+Jett has missions 3.
+
+% Infractions
+Rex is reckless.
+Jett is on_probation.
+
+% Elite squadron members
+Zara is elite.
+Nova is elite.
+Kai is elite.
+
+% Elite squadron roster (for list demonstration)
+elite_squadron has roster [zara, nova, kai].
+
+% ═══════════════════════════════════════════════════════════════════
+% RULES — Clean and Efficient
+% ═══════════════════════════════════════════════════════════════════
+
+% Honors (high academic performance)
+X has honors yes if X is a cadet 
+    and X has score S 
+    and S is greater_than 89.
+
+% Passing grade
+X is passing if X is a cadet 
+    and X has score S 
+    and S is greater_than 69.
+
+% Failing
+X is failing if X is a cadet and X is not passing.
+
+% Veteran pilot (experienced pilot)
+X is a veteran_pilot if X has specialization pilot 
+    and X has flight_hours H 
+    and H is greater_than 299.
+
+% Promotion eligibility (core gatekeeper rule)
+X is promotion_eligible if X is a cadet 
+    and X is passing 
+    and X is not reckless 
+    and X is not on_probation.
+
+% Mission ready (requires promotion eligibility + sufficient missions)
+X is mission_ready if X is promotion_eligible 
+    and X has missions M 
+    and M is greater_than 4.
+
+% Commander candidate (highest achievement)
+X is a commander_candidate if X has honors yes 
+    and X is a veteran_pilot 
+    and X is mission_ready.
+
+% Squad leader
+X is a squad_leader if X is elite and X has honors yes.
+
+% Mentor (experienced and reliable)
+X is a mentor if X is a cadet 
+    and X has missions M 
+    and M is greater_than 9 
+    and X is not reckless.
+
+% Washout risk
+X is a washout_risk if X is a cadet 
+    and X has score S 
+    and S is less_than 75 
+    and X is on_probation.
+
+% Rival (same specialization, one excels while the other fails)
+X is a rival of Y if X has specialization S 
+    and Y has specialization S 
+    and X has honors yes 
+    and Y is failing.
+
+% Dream team (compatible specializations + both mission ready)
+X is a dream_team_with Y if X has specialization pilot 
+    and Y has specialization engineer 
+    and X is mission_ready 
+    and Y is mission_ready.
+
+% List-based membership demonstration
+X is in_elite_squadron if elite_squadron has roster L 
+    and X is in L.
+
+% ═══════════════════════════════════════════════════════════════════
+% GUIDED WALKTHROUGH QUERIES
+% ═══════════════════════════════════════════════════════════════════
+%
+% After :load this file, try these queries:
+%
+% Basic facts and simple rules:
+% Who is a cadet?
+% Who has honors yes?
+% Who is failing?
+%
+% Math and comparisons:
+% Is 92 greater_than 89?
+% Is 92 bigger_than 89?
+%
+% Complex inference:
+% Who is a veteran_pilot?
+% Who is promotion_eligible?
+% Who is mission_ready?
+% Who is a commander_candidate?          % Should return only Zara
+% Who is a squad_leader?
+% Who is a mentor?
+% Who is a washout_risk?
+%
+% Relationships:
+% Who is a rival of Rex?
+% Who is a dream_team_with Kai?          % Should return Zara
+% Who is in_elite_squadron?
+%
+% Debugging tools:
+% :trace on
+% Is Zara a commander_candidate?
+% :trace off
+% :why
+%
+% :show   % to see all loaded clauses

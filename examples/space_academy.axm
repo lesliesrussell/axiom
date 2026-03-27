@@ -1,0 +1,277 @@
+% ╔═══════════════════════════════════════════════════════════════════════╗
+% ║                                                                     ║
+% ║       AXIOM SPACE ACADEMY — Showcasing v0.2 Features                ║
+% ║                                                                     ║
+% ║  This example demonstrates every v0.2 feature:                      ║
+% ║    • include — importing the standard library                       ║
+% ║    • Built-in math — less_than, greater_than, equal                 ║
+% ║    • Built-in lists — member_of, length                             ║
+% ║    • :trace — watch the engine think                                ║
+% ║    • :why — understand how answers are derived                      ║
+% ║    • Better errors — try typing nonsense!                           ║
+% ║                                                                     ║
+% ║  Load:  :load examples/space_academy.axm                           ║
+% ║  Then follow the guided walkthrough below.                          ║
+% ║                                                                     ║
+% ╚═══════════════════════════════════════════════════════════════════════╝
+
+% ─── FEATURE: include ──────────────────────────────────────────────
+% Pull in the standard library for math comparisons and list ops.
+
+include "../lib/math.axm".
+include "../lib/lists.axm".
+
+% ═══════════════════════════════════════════════════════════════════
+%  THE WORLD: A space academy training program
+% ═══════════════════════════════════════════════════════════════════
+
+% ─── Cadets ────────────────────────────────────────────────────────
+
+Zara is a cadet.
+Kai is a cadet.
+Nova is a cadet.
+Rex is a cadet.
+Luma is a cadet.
+Jett is a cadet.
+
+% ─── Specializations ──────────────────────────────────────────────
+
+Zara has specialization pilot.
+Kai has specialization engineer.
+Nova has specialization scientist.
+Rex has specialization pilot.
+Luma has specialization medic.
+Jett has specialization engineer.
+
+% ─── FEATURE: Built-in math (less_than, greater_than) ─────────────
+% Exam scores are integers — we use built-in comparisons on them.
+
+Zara has score 92.
+Kai has score 88.
+Nova has score 95.
+Rex has score 71.
+Luma has score 84.
+Jett has score 67.
+
+% ─── Flight hours ─────────────────────────────────────────────────
+
+Zara has flight_hours 340.
+Kai has flight_hours 120.
+Nova has flight_hours 200.
+Rex has flight_hours 410.
+Luma has flight_hours 90.
+Jett has flight_hours 50.
+
+% ─── Missions completed ──────────────────────────────────────────
+
+Zara has missions 12.
+Kai has missions 8.
+Nova has missions 15.
+Rex has missions 6.
+Luma has missions 9.
+Jett has missions 3.
+
+% ─── Infractions ──────────────────────────────────────────────────
+
+Rex is reckless.
+Jett is on_probation.
+
+% ─── FEATURE: Built-in lists (member_of) ─────────────────────────
+% The academy's elite squadron roster and forbidden zones.
+
+elite_squadron has roster [zara, nova, kai].
+forbidden_zones has list [nebula_x, black_hole_7, warp_rift].
+
+% ═══════════════════════════════════════════════════════════════════
+%  RULES — This is where the logic gets interesting
+% ═══════════════════════════════════════════════════════════════════
+
+% --- Honors: score above 90 ---
+% FEATURE: Uses built-in greater_than on integers
+
+X has honors yes if X is a cadet and X has score S and S is greater_than 89.
+
+% --- Passing: score above 70 ---
+
+X is passing if X is a cadet and X has score S and S is greater_than 69.
+
+% --- Failing ---
+
+X is failing if X is a cadet and X is not passing.
+
+% --- Veteran pilot: pilot with 300+ flight hours ---
+
+X is a veteran_pilot if X has specialization pilot and X has flight_hours H and H is greater_than 299.
+
+% --- Eligible for promotion: passing, not reckless, not on probation ---
+
+X is promotion_eligible if X is a cadet and X is passing and X is not reckless and X is not on_probation.
+
+% --- Mission-ready: 5+ missions and promotion eligible ---
+
+X is mission_ready if X is promotion_eligible and X has missions M and M is greater_than 4.
+
+% --- Commander candidate: honors + veteran pilot + mission ready ---
+
+X is a commander_candidate if X has honors yes and X is a veteran_pilot and X is mission_ready.
+
+% --- Squad leader: in the elite squadron and has honors ---
+
+X is a squad_leader if X has honors yes and zara is a member_of [zara, nova, kai].
+
+% Actually let's make this properly check membership:
+X is in_elite_squadron if X is a cadet and X has specialization S and elite_member has name X.
+
+% Simpler: define elite membership as facts
+Zara is elite.
+Nova is elite.
+Kai is elite.
+
+X is a squad_leader if X is elite and X has honors yes.
+
+% --- Mentor: experienced cadet (10+ missions) who can guide others ---
+
+X is a mentor if X is a cadet and X has missions M and M is greater_than 9 and X is not reckless.
+
+% --- Washout risk: low score + few missions + on probation ---
+
+X is a washout_risk if X is a cadet and X has score S and S is less_than 75 and X is on_probation.
+
+% --- Rival pair: same specialization, one has honors, one doesn't ---
+
+X is a rival of Y if X has specialization S and Y has specialization S and X has honors yes and Y is not passing.
+
+% --- Dream team: a pilot and an engineer who are both mission-ready ---
+
+X is a dream_team_with Y if X has specialization pilot and Y has specialization engineer and X is mission_ready and Y is mission_ready.
+
+% ═══════════════════════════════════════════════════════════════════
+%  GUIDED WALKTHROUGH
+% ═══════════════════════════════════════════════════════════════════
+%
+%  After loading this file, try each section below.
+%  Copy-paste the queries into the REPL.
+%
+% ─── Part 1: Basic queries ─────────────────────────────────────────
+%
+%  Who is a cadet?
+%  Who is passing?
+%  Who is failing?
+%  Who has honors yes?
+%
+% ─── Part 2: Built-in math in action ──────────────────────────────
+%
+%  The honors rule uses greater_than to compare scores.
+%  Try checking directly:
+%
+%  Is 92 greater_than 89?
+%  Is 67 greater_than 89?
+%
+%  And via the standard library wrapper:
+%
+%  Is 92 bigger_than 89?
+%
+% ─── Part 3: Complex inference chains ─────────────────────────────
+%
+%  Who is a veteran_pilot?
+%  Who is promotion_eligible?
+%  Who is mission_ready?
+%  Who is a commander_candidate?
+%  Who is a mentor?
+%  Who is a washout_risk?
+%
+% ─── Part 4: :trace — Watch the engine reason ─────────────────────
+%
+%  Turn on tracing and run a complex query:
+%
+%  :trace on
+%  Is Zara a commander_candidate?
+%  :trace off
+%
+%  You'll see the engine:
+%    [CALL] commander_candidate(zara)
+%    [CALL] honors(zara, yes)
+%    [CALL] cadet(zara)
+%    [EXIT] cadet(zara)
+%    [CALL] score(zara, S_N)
+%    [EXIT] score(zara, 92)
+%    [CALL] greater_than(92, 89)
+%    [EXIT] greater_than(92, 89)
+%    ...and so on through veteran_pilot and mission_ready
+%
+% ─── Part 5: :why — Understand the proof ──────────────────────────
+%
+%  After a successful query, ask why:
+%
+%  Is Zara a commander_candidate?
+%  :why
+%
+%  You'll see the proof tree showing which facts and rules
+%  were used to reach the conclusion.
+%
+% ─── Part 6: Negation in action ───────────────────────────────────
+%
+%  Is Rex promotion_eligible?
+%
+%  → No! Rex is reckless, so negation-as-failure kicks in.
+%  Turn on trace to see the negation check:
+%
+%  :trace on
+%  Is Rex promotion_eligible?
+%  :trace off
+%
+%  You'll see [CALL] reckless(rex) succeed,
+%  which makes "not reckless" fail.
+%
+% ─── Part 7: Relationships ────────────────────────────────────────
+%
+%  Who is a rival of Rex?
+%  Who is a dream_team_with Kai?
+%
+% ─── Part 8: Live modifications ───────────────────────────────────
+%
+%  Jett studies hard and retakes the exam:
+%
+%  Jett has score 91.
+%  Who has honors yes?          → Now includes Jett!
+%
+%  Rex completes anger management:
+%  (We can't retract "Rex is reckless" yet, but we can add an override)
+%
+% ─── Part 9: Error messages ───────────────────────────────────────
+%
+%  Try some bad syntax to see the improved error messages:
+%
+%  blorp is what now.
+%  the broken thing.
+%  42 + 7.
+%
+%  Each will show line/column and a helpful hint.
+%
+% ─── Part 10: Include chain ───────────────────────────────────────
+%
+%  This file already loaded lib/math.axm and lib/lists.axm
+%  via include at the top. Check what was loaded:
+%
+%  :show
+%
+%  You'll see the standard library rules (smaller_than, bigger_than,
+%  equal_to) mixed in with the academy rules.
+%
+% ═══════════════════════════════════════════════════════════════════
+%  EXPECTED ANSWERS
+% ═══════════════════════════════════════════════════════════════════
+%
+%  Who has honors yes?           → Zara, Nova (scores 92, 95)
+%  Who is failing?               → Jett (score 67 < 70)
+%  Who is a veteran_pilot?       → Zara (340h), Rex (410h)
+%  Who is promotion_eligible?    → Zara, Kai, Nova, Luma
+%                                  (not Rex=reckless, not Jett=probation)
+%  Who is mission_ready?         → Zara (12), Kai (8), Nova (15), Luma (9)
+%  Who is a commander_candidate? → Zara
+%                                  (only one with honors + veteran + ready)
+%  Who is a mentor?              → Zara (12 missions), Nova (15 missions)
+%  Who is a washout_risk?        → Jett (score 67, on probation)
+%  Who is a squad_leader?        → Zara, Nova (elite + honors)
+%  Who is a dream_team_with Kai? → Zara (pilot+ready, Kai=engineer+ready)
+%
