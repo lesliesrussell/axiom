@@ -55,7 +55,7 @@ fn okStr(s: []const u8) void {
 // axiom-82z: completion list for the line editor
 const REPL_COMMANDS = [_][]const u8{
     ":check", ":clear", ":help", ":load ", ":pred ", ":quit", ":reload",
-    ":retract ", ":save ", ":show", ":show facts", ":show ids", ":show rules",
+    ":retract ", ":save ", ":show", ":show english", ":show facts", ":show ids", ":show rules",
     ":trace", ":trace on", ":trace off", ":why",
 };
 
@@ -433,6 +433,19 @@ const Axiom = struct {
         }
     }
 
+    // axiom-xec
+    fn showClausesEnglish(self: *Axiom) void {
+        const clauses = self.engine.getClauses();
+        if (clauses.len == 0) {
+            writeStr("No clauses loaded.\n");
+            return;
+        }
+        for (clauses, 0..) |clause, i| {
+            const sentence = engine_mod.english.clauseToEnglish(self.allocator, clause) catch continue;
+            output("{d}: {s}\n", .{ i + 1, sentence });
+        }
+    }
+
     // axiom-9nz
     fn explainWhy(self: *Axiom, arg: []const u8) void {
         const goals = self.last_query_goals orelse {
@@ -685,8 +698,10 @@ const Axiom = struct {
                         self.showClauses(.rules);
                     } else if (std.mem.eql(u8, arg, "ids")) {
                         self.showClauseIds(); // axiom-ekd
+                    } else if (std.mem.eql(u8, arg, "english")) {
+                        self.showClausesEnglish(); // axiom-xec
                     } else {
-                        errStr("Usage: :show [facts|rules|ids]\n");
+                        errStr("Usage: :show [facts|rules|ids|english]\n");
                     }
                     return true;
                 }
@@ -772,6 +787,7 @@ const Axiom = struct {
             \\  :show facts      List only facts
             \\  :show rules      List only rules
             \\  :show ids        List clauses with stable ids and labels
+            \\  :show english    List clauses as canonical English
             \\  :retract <n>     Remove clause n (numbers shift; see :show)
             \\  :clear           Remove all clauses and declarations
             \\  :save <file>     Save clause sentences to a file
