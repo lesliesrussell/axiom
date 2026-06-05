@@ -73,7 +73,7 @@ const Axiom = struct {
             .command => |cmd| {
                 switch (cmd) {
                     .load => |filename| self.loadFileNoError(filename),
-                    .show => self.showClauses(),
+                    .show => self.showClauses(.all),
                     .include => |filename| self.handleInclude(filename, base_dir),
                 }
             },
@@ -225,13 +225,19 @@ const Axiom = struct {
         output("Loaded '{s}'.\n", .{filename});
     }
 
-    fn showClauses(self: *Axiom) void {
+    // axiom-krf
+    const ShowFilter = enum { all, facts, rules };
+
+    fn showClauses(self: *Axiom, filter: ShowFilter) void {
         const clauses = self.engine.getClauses();
-        if (clauses.len == 0) {
-            writeStr("No clauses loaded.\n");
-            return;
-        }
+        var shown: usize = 0;
         for (clauses, 0..) |clause, i| {
+            switch (filter) {
+                .all => {},
+                .facts => if (clause.body.len > 0) continue,
+                .rules => if (clause.body.len == 0) continue,
+            }
+            shown += 1;
             output("{d}: {s}(", .{ i + 1, clause.head.functor });
             for (clause.head.args, 0..) |arg, j| {
                 if (j > 0) writeStr(", ");
@@ -251,6 +257,13 @@ const Axiom = struct {
                 }
             }
             writeStr(".\n");
+        }
+        if (shown == 0) {
+            switch (filter) {
+                .all => writeStr("No clauses loaded.\n"),
+                .facts => writeStr("No facts loaded.\n"),
+                .rules => writeStr("No rules loaded.\n"),
+            }
         }
     }
 
@@ -350,7 +363,20 @@ const Axiom = struct {
                 }
 
                 if (std.mem.eql(u8, input, ":show")) {
-                    self.showClauses();
+                    self.showClauses(.all);
+                    continue;
+                }
+
+                // axiom-krf
+                if (std.mem.startsWith(u8, input, ":show ")) {
+                    const arg = std.mem.trim(u8, input[6..], &std.ascii.whitespace);
+                    if (std.mem.eql(u8, arg, "facts")) {
+                        self.showClauses(.facts);
+                    } else if (std.mem.eql(u8, arg, "rules")) {
+                        self.showClauses(.rules);
+                    } else {
+                        writeStr("Usage: :show [facts|rules]\n");
+                    }
                     continue;
                 }
 
@@ -413,6 +439,8 @@ const Axiom = struct {
             \\Commands:
             \\  :load <file>     Load an .axm file
             \\  :show            List all loaded clauses
+            \\  :show facts      List only facts
+            \\  :show rules      List only rules
             \\  :trace on/off    Toggle execution tracing
             \\  :trace           Show current trace status
             \\  :why             Explain the last successful query
