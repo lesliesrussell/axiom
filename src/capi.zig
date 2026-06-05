@@ -384,3 +384,129 @@ export fn axiom_decide(handle: ?*ProgramHandle, subject: ?[*:0]const u8, action:
     };
     return out;
 }
+
+// ─── Semantic diff + what-if (axiom-aof) ────────────────────────────────────
+
+pub const AxiomDiffKind = enum(c_int) {
+    added = 0,
+    removed = 1,
+    modified = 2,
+};
+
+pub const AxiomRuleDiff = extern struct {
+    kind: AxiomDiffKind,
+    predicate: [*:0]const u8, // "name/arity" of the head
+    rule_id: [*:0]const u8, // label, or 16-hex clause id
+    old_english: ?[*:0]const u8, // null for added
+    new_english: ?[*:0]const u8, // null for removed
+};
+
+fn predSpec(alloc: std.mem.Allocator, clause: types.Clause) ?[*:0]const u8 {
+    var buf: [160]u8 = undefined;
+    const spec = std.fmt.bufPrint(&buf, "{s}/{d}", .{ clause.head.functor, clause.head.args.len }) catch return null;
+    return dupeZ(alloc, spec);
+}
+
+fn ruleIdStr(alloc: std.mem.Allocator, clause: types.Clause) ?[*:0]const u8 {
+    if (clause.label.len > 0) return dupeZ(alloc, clause.label);
+    var hex_buf: [16]u8 = undefined;
+    const hex = engine_mod.identity.hashHex(clause.id, &hex_buf);
+    return dupeZ(alloc, hex);
+}
+
+fn clauseEnglishZ(alloc: std.mem.Allocator, clause: types.Clause) ?[*:0]const u8 {
+    const sentence = engine_mod.english.clauseToEnglish(alloc, clause) catch return null;
+    return dupeZ(alloc, sentence);
+}
+
+/// Clause-level semantic diff. Results (and strings) are owned by NEWP's
+/// arena: valid until axiom_free(newp), do not free individually.
+export fn axiom_diff_programs(oldp: ?*ProgramHandle, newp: ?*ProgramHandle, out_count: ?*usize) ?[*]AxiomRuleDiff {
+    const op = oldp orelse return null;
+    const np = newp orelse return null;
+    const count_out = out_count orelse return null;
+    const alloc = np.arena.allocator();
+
+    const diffs = engine_mod.diff.diffPrograms(alloc, op.engine.getClauses(), np.engine.getClauses()) catch return null;
+    const out = alloc.alloc(AxiomRuleDiff, diffs.len) catch return null;
+    for (diffs, 0..) |d, i| {
+        const rep = d.new_clause orelse d.old_clause.?;
+        out[i] = .{
+            .kind = switch (d.kind) {
+                .added => .added,
+                .removed => .removed,
+                .modified => .modified,
+            },
+            .predicate = predSpec(alloc, rep) orelse return null,
+            .rule_id = ruleIdStr(alloc, rep) orelse return null,
+            .old_english = if (d.old_clause) |c| clauseEnglishZ(alloc, c) else null,
+            .new_english = if (d.new_clause) |c| clauseEnglishZ(alloc, c) else null,
+        };
+    }
+    count_out.* = diffs.len;
+    return out.ptr;
+}
+
+pub const AxiomDecisionInput = extern struct {
+    subject: [*:0]const u8,
+    action: [*:0]const u8,
+    resource: ?[*:0]const u8,
+};
+
+pub const AxiomDecisionDelta = extern struct {
+    input: AxiomDecisionInput,
+    old_decision: *AxiomDecision,
+    new_decision: *AxiomDecision,
+};
+
+fn decisionToC(alloc: std.mem.Allocator, d: engine_mod.Engine.Decision, subj: [*:0]const u8, act: [*:0]const u8, res: ?[*:0]const u8) ?*AxiomDecision {
+    const out = alloc.create(AxiomDecision) catch return null;
+    out.* = .{
+        .outcome = switch (d.outcome) {
+            .allow => .allow,
+            .deny => .deny,
+            .indeterminate => .indeterminate,
+        },
+        .subject = subj,
+        .action = act,
+        .resource = res,
+        .reason_count = d.reasons.len,
+        .reasons = dupeStringList(alloc, d.reasons),
+        .evidence_count = d.evidence.len,
+        .evidence = dupeStringList(alloc, d.evidence),
+    };
+    return out;
+}
+
+/// Run each input against both programs; return the inputs whose OUTCOME
+/// differs. Results owned by NEWP's arena (valid until axiom_free(newp)).
+export fn axiom_compare_decisions(oldp: ?*ProgramHandle, newp: ?*ProgramHandle, inputs: ?[*]const AxiomDecisionInput, input_count: usize, out_count: ?*usize) ?[*]AxiomDecisionDelta {
+    const op = oldp orelse return null;
+    const np = newp orelse return null;
+    const ins = inputs orelse return null;
+    const count_out = out_count orelse return null;
+    const alloc = np.arena.allocator();
+
+    var deltas: std.ArrayList(AxiomDecisionDelta) = .empty;
+    for (ins[0..input_count]) |inp| {
+        const subj = alloc.dupe(u8, std.mem.span(inp.subject)) catch return null;
+        const act = alloc.dupe(u8, std.mem.span(inp.action)) catch return null;
+        const res: ?[]const u8 = if (inp.resource) |r| alloc.dupe(u8, std.mem.span(r)) catch return null else null;
+
+        const old_d = op.engine.decide(subj, act, res) catch continue;
+        const new_d = np.engine.decide(subj, act, res) catch continue;
+        if (old_d.outcome == new_d.outcome) continue;
+
+        const subj_z = dupeZ(alloc, subj) orelse return null;
+        const act_z = dupeZ(alloc, act) orelse return null;
+        const res_z: ?[*:0]const u8 = if (res) |r| dupeZ(alloc, r) else null;
+        deltas.append(alloc, .{
+            .input = .{ .subject = subj_z, .action = act_z, .resource = res_z },
+            .old_decision = decisionToC(alloc, old_d, subj_z, act_z, res_z) orelse return null,
+            .new_decision = decisionToC(alloc, new_d, subj_z, act_z, res_z) orelse return null,
+        }) catch return null;
+    }
+    count_out.* = deltas.items.len;
+    const slice = deltas.toOwnedSlice(alloc) catch return null;
+    return slice.ptr;
+}

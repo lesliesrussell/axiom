@@ -54,7 +54,8 @@ fn okStr(s: []const u8) void {
 
 // axiom-82z: completion list for the line editor
 const REPL_COMMANDS = [_][]const u8{
-    ":check", ":clear", ":help", ":load ", ":pred ", ":quit", ":reload",
+    ":check", ":clear", ":diff ", ":help", ":load ", ":pred ", ":quit", ":reload",
+    ":whatif ",
     ":retract ", ":save ", ":show", ":show english", ":show facts", ":show ids", ":show rules",
     ":trace", ":trace on", ":trace off", ":why",
 };
@@ -101,6 +102,19 @@ fn labelBefore(source: []const u8, span: []const u8) []const u8 {
     const prefix = "% id:";
     if (!std.mem.startsWith(u8, line, prefix)) return "";
     return std.mem.trim(u8, line[prefix.len..], &std.ascii.whitespace);
+}
+
+// axiom-aof
+fn printReasonsIndented(tag: []const u8, reasons: []const []const u8) void {
+    if (reasons.len == 0) return;
+    writeStr("    ");
+    writeStr(tag);
+    writeStr(": ");
+    for (reasons, 0..) |r, i| {
+        if (i > 0) writeStr(", ");
+        writeStr(r);
+    }
+    writeStr("\n");
 }
 
 const Axiom = struct {
@@ -568,6 +582,134 @@ const Axiom = struct {
         }
     }
 
+    // axiom-aof
+    // Load a file into a fresh engine by swapping self.engine — reuses the
+    // whole loader (spans, labels, includes, skip reporting). Restores the
+    // session engine and loaded-file list on all paths.
+    fn loadScratch(self: *Axiom, path: []const u8) ?Engine {
+        const saved_engine = self.engine;
+        const saved_files_len = self.loaded_files.items.len;
+        const saved_verbose = self.verbose_asserts;
+        self.engine = Engine.init(self.allocator);
+        self.verbose_asserts = false;
+
+        var failed = false;
+        self.loadFile(path) catch {
+            failed = true;
+        };
+        const scratch = self.engine;
+
+        self.engine = saved_engine;
+        self.verbose_asserts = saved_verbose;
+        self.loaded_files.shrinkRetainingCapacity(saved_files_len);
+
+        if (failed or scratch.getClauses().len == 0) {
+            // loadFile already printed the error for unreadable files
+            return if (failed) null else scratch;
+        }
+        return scratch;
+    }
+
+    // axiom-aof
+    fn diffFiles(self: *Axiom, old_path: []const u8, new_path: []const u8) void {
+        var old_eng = self.loadScratch(old_path) orelse return;
+        var new_eng = self.loadScratch(new_path) orelse return;
+        _ = &old_eng;
+        _ = &new_eng;
+
+        const diffs = engine_mod.diff.diffPrograms(self.allocator, old_eng.getClauses(), new_eng.getClauses()) catch |err| {
+            errOut("Diff error: {}\n", .{err});
+            return;
+        };
+        if (diffs.len == 0) {
+            writeStr("No semantic changes.\n");
+            return;
+        }
+        for (diffs) |d| {
+            switch (d.kind) {
+                .added => {
+                    eout.style(.ok);
+                    writeStr("+ added:    ");
+                    self.writeClauseEnglish(d.new_clause.?);
+                    eout.style(.reset);
+                },
+                .removed => {
+                    eout.style(.err);
+                    writeStr("- removed:  ");
+                    self.writeClauseEnglish(d.old_clause.?);
+                    eout.style(.reset);
+                },
+                .modified => {
+                    eout.style(.accent);
+                    writeStr("~ modified");
+                    if (d.old_clause.?.label.len > 0) {
+                        writeStr(" (");
+                        writeStr(d.old_clause.?.label);
+                        writeStr(")");
+                    }
+                    writeStr(":\n    old: ");
+                    self.writeClauseEnglish(d.old_clause.?);
+                    writeStr("    new: ");
+                    self.writeClauseEnglish(d.new_clause.?);
+                    eout.style(.reset);
+                },
+            }
+        }
+    }
+
+    fn writeClauseEnglish(self: *Axiom, clause: Clause) void {
+        const sentence = engine_mod.english.clauseToEnglish(self.allocator, clause) catch {
+            writeStr("(render error)\n");
+            return;
+        };
+        writeStr(sentence);
+        writeStr("\n");
+    }
+
+    // axiom-aof
+    fn whatIf(self: *Axiom, old_path: []const u8, new_path: []const u8, inputs_path: []const u8) void {
+        var old_eng = self.loadScratch(old_path) orelse return;
+        var new_eng = self.loadScratch(new_path) orelse return;
+
+        const data = std.Io.Dir.cwd().readFileAlloc(types.defaultIo(), inputs_path, self.allocator, .limited(1024 * 1024)) catch |err| {
+            errOut("Error reading '{s}': {}\n", .{ inputs_path, err });
+            return;
+        };
+
+        var changed: usize = 0;
+        var total: usize = 0;
+        var lines = std.mem.splitScalar(u8, data, '\n');
+        while (lines.next()) |raw_line| {
+            const line = std.mem.trim(u8, raw_line, &std.ascii.whitespace);
+            if (line.len == 0 or line[0] == '%') continue;
+            var fields = std.mem.tokenizeAny(u8, line, " \t");
+            const subject = fields.next() orelse continue;
+            const action = fields.next() orelse {
+                errOut("Skipping malformed input line: {s}\n", .{line});
+                continue;
+            };
+            const resource = fields.next();
+            total += 1;
+
+            const old_d = old_eng.decide(subject, action, resource) catch continue;
+            const new_d = new_eng.decide(subject, action, resource) catch continue;
+            if (old_d.outcome == new_d.outcome) continue;
+            changed += 1;
+
+            if (changed == 1) writeStr("Changed:\n");
+            output("  {s} {s}", .{ subject, action });
+            if (resource) |r| output(" {s}", .{r});
+            output(": {s} -> {s}\n", .{ @tagName(old_d.outcome), @tagName(new_d.outcome) });
+            printReasonsIndented("old reasons", old_d.reasons);
+            printReasonsIndented("new reasons", new_d.reasons);
+        }
+        if (changed == 0) {
+            output("No decision changes across {d} input(s).\n", .{total});
+        } else {
+            output("{d} of {d} decision(s) changed.\n", .{ changed, total });
+        }
+    }
+
     fn showPredInfo(self: *Axiom, spec: []const u8) void {
         // Parse "name/arity"
         const slash = std.mem.indexOfScalar(u8, spec, '/') orelse {
@@ -762,6 +904,32 @@ const Axiom = struct {
                     return true;
                 }
 
+                // axiom-aof
+                if (std.mem.startsWith(u8, input, ":diff")) {
+                    var fields = std.mem.tokenizeAny(u8, input[5..], " \t");
+                    const a = fields.next();
+                    const b = fields.next();
+                    if (a == null or b == null or fields.next() != null) {
+                        errStr("Usage: :diff <old.axm> <new.axm>\n");
+                    } else {
+                        self.diffFiles(a.?, b.?);
+                    }
+                    return true;
+                }
+
+                if (std.mem.startsWith(u8, input, ":whatif")) {
+                    var fields = std.mem.tokenizeAny(u8, input[7..], " \t");
+                    const a = fields.next();
+                    const b = fields.next();
+                    const inp = fields.next();
+                    if (a == null or b == null or inp == null or fields.next() != null) {
+                        errStr("Usage: :whatif <old.axm> <new.axm> <inputs.txt>\n");
+                    } else {
+                        self.whatIf(a.?, b.?, inp.?);
+                    }
+                    return true;
+                }
+
                 // Trace commands
                 if (std.mem.eql(u8, input, ":trace on")) {
                     self.engine.trace_enabled = true;
@@ -825,6 +993,8 @@ const Axiom = struct {
             \\  :clear           Remove all clauses and declarations
             \\  :save <file>     Save clause sentences to a file
             \\  :reload          Clear, then re-load all loaded files
+            \\  :diff a b        Semantic diff between two .axm files
+            \\  :whatif a b in   Decision deltas between versions (inputs file)
             \\  :trace on/off    Toggle execution tracing
             \\  :trace           Show current trace status
             \\  :why [n]         Explain solution n of the last query (default 1)

@@ -19,6 +19,7 @@ const proof = @import("proof.zig");
 const explain = @import("explain.zig"); // axiom-9nz
 pub const identity = @import("identity.zig"); // axiom-ekd: pub for REPL display
 pub const english = @import("english.zig"); // axiom-xec: canonical display
+pub const diff = @import("diff.zig"); // axiom-aof: semantic diff
 const checks = @import("checks.zig");
 pub const output = @import("output.zig"); // axiom-wk4: pub for REPL styling
 const traceCompound = output.traceCompound;

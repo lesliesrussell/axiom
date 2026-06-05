@@ -112,6 +112,49 @@ int main(void) {
         axiom_free(dp);
     }
 
+    /* ── diff + what-if (axiom-aof) ──────────────────────────────── */
+    {
+        AxiomProgram *v1 = axiom_new();
+        AxiomProgram *v2 = axiom_new();
+        axiom_load_source(v1,
+            "Leslie is a user.\n"
+            "D has outcome deny if D has subject S and S is flagged.\n"
+            "Leslie is flagged.\n");
+        axiom_load_source(v2,
+            "Leslie is a user.\n"
+            "D has outcome allow if D has subject S and S is a user.\n");
+
+        size_t n_diffs = 0;
+        AxiomRuleDiff *diffs = axiom_diff_programs(v1, v2, &n_diffs);
+        if (!diffs || n_diffs != 3) { /* deny rule + flagged fact removed, allow rule added */
+            printf("FAIL: expected 3 diffs, got %zu\n", n_diffs);
+            return 1;
+        }
+        printf("diff: %zu changes (e.g. %s %s)\n", n_diffs,
+               diffs[0].kind == AXIOM_DIFF_REMOVED ? "removed" : "changed",
+               diffs[0].predicate);
+
+        AxiomDecisionInput inputs[2] = {
+            { "leslie", "log_in", NULL },
+            { "ghost", "log_in", NULL },
+        };
+        size_t n_deltas = 0;
+        AxiomDecisionDelta *deltas = axiom_compare_decisions(v1, v2, inputs, 2, &n_deltas);
+        if (!deltas || n_deltas != 1) {
+            printf("FAIL: expected 1 decision delta, got %zu\n", n_deltas);
+            return 1;
+        }
+        if (deltas[0].old_decision->outcome != AXIOM_DECISION_DENY ||
+            deltas[0].new_decision->outcome != AXIOM_DECISION_ALLOW) {
+            printf("FAIL: expected deny->allow delta\n");
+            return 1;
+        }
+        printf("what-if: %s deny -> allow (1 of 2 inputs changed)\n",
+               deltas[0].input.subject);
+        axiom_free(v1);
+        axiom_free(v2);
+    }
+
     printf("\n=== All tests passed ===\n");
 
     axiom_free(p);

@@ -118,6 +118,45 @@ typedef struct {
 AxiomDecision *axiom_decide(AxiomProgram *program, const char *subject,
                             const char *action, const char *resource);
 
+/* ─── Semantic diff + what-if (axiom-aof) ───────────────────────────── */
+
+typedef enum {
+    AXIOM_DIFF_ADDED = 0,
+    AXIOM_DIFF_REMOVED = 1,
+    AXIOM_DIFF_MODIFIED = 2
+} AxiomDiffKind;
+
+typedef struct {
+    AxiomDiffKind kind;
+    const char *predicate;   /* "name/arity" of the head */
+    const char *rule_id;     /* '% id:' label, or 16-hex clause id */
+    const char *old_english; /* NULL for added */
+    const char *new_english; /* NULL for removed */
+} AxiomRuleDiff;
+
+/* Clause-level semantic diff (alpha-normalized: variable renaming is not
+ * a change). Result owned by NEWP's arena — valid until axiom_free(newp). */
+AxiomRuleDiff *axiom_diff_programs(AxiomProgram *oldp, AxiomProgram *newp,
+                                   size_t *out_count);
+
+typedef struct {
+    const char *subject;
+    const char *action;
+    const char *resource;    /* NULL when not applicable */
+} AxiomDecisionInput;
+
+typedef struct {
+    AxiomDecisionInput input;
+    AxiomDecision *old_decision;
+    AxiomDecision *new_decision;
+} AxiomDecisionDelta;
+
+/* Run each input against both programs; return inputs whose outcome
+ * differs. Result owned by NEWP's arena — valid until axiom_free(newp). */
+AxiomDecisionDelta *axiom_compare_decisions(AxiomProgram *oldp, AxiomProgram *newp,
+                                            const AxiomDecisionInput *inputs,
+                                            size_t input_count, size_t *out_count);
+
 /* Free a query result. Must be called for every result from axiom_query_*. */
 void axiom_result_free(AxiomResult *result);
 
