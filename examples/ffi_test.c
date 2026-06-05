@@ -69,6 +69,49 @@ int main(void) {
     }
     axiom_result_free(r5);
 
+    /* ── decisions (axiom-i01) ───────────────────────────────────── */
+    {
+        AxiomProgram *dp = axiom_new();
+        axiom_load_source(dp,
+            "Leslie is a user.\n"
+            "Mallory is a user.\n"
+            "Mallory is banned.\n"
+            "D has outcome allow if D has subject S and D has action log_in and S is a user.\n"
+            "D has outcome deny if D has subject S and S is banned.\n");
+
+        AxiomDecision *d1 = axiom_decide(dp, "leslie", "log_in", NULL);
+        if (!d1 || d1->outcome != AXIOM_DECISION_ALLOW) {
+            printf("FAIL: expected ALLOW for leslie\n");
+            return 1;
+        }
+        printf("decide(leslie, log_in): ALLOW, %zu reason(s), %zu evidence\n",
+               d1->reason_count, d1->evidence_count);
+
+        AxiomDecision *d2 = axiom_decide(dp, "mallory", "log_in", NULL);
+        if (!d2 || d2->outcome != AXIOM_DECISION_DENY) {
+            printf("FAIL: expected DENY for mallory (deny-overrides)\n");
+            return 1;
+        }
+        printf("decide(mallory, log_in): DENY (deny-overrides ok)\n");
+
+        AxiomDecision *d3 = axiom_decide(dp, "ghost", "log_in", NULL);
+        if (!d3 || d3->outcome != AXIOM_DECISION_INDETERMINATE) {
+            printf("FAIL: expected INDETERMINATE for ghost\n");
+            return 1;
+        }
+        printf("decide(ghost, log_in): INDETERMINATE\n");
+
+        /* temp scope hygiene: decide must not leak clauses */
+        size_t n = axiom_clause_count(dp);
+        axiom_decide(dp, "leslie", "log_in", NULL);
+        if (axiom_clause_count(dp) != n) {
+            printf("FAIL: decide leaked clauses\n");
+            return 1;
+        }
+        printf("decide scope hygiene: ok\n");
+        axiom_free(dp);
+    }
+
     printf("\n=== All tests passed ===\n");
 
     axiom_free(p);

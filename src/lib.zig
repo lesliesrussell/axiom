@@ -105,6 +105,12 @@ pub const Program = struct {
         };
     }
 
+    /// Evaluate decision rules for (subject, action[, resource]).
+    /// Deny-overrides; see Engine.decide. axiom-i01
+    pub fn decide(self: *Program, subject: []const u8, action: []const u8, resource: ?[]const u8) !engine_mod.Engine.Decision {
+        return self.engine.decide(subject, action, resource);
+    }
+
     /// Get the number of loaded clauses
     pub fn clauseCount(self: *const Program) usize {
         return self.engine.getClauses().len;

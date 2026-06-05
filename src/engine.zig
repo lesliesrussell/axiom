@@ -283,6 +283,143 @@ pub const Engine = struct {
         explain.explainSolution(self, goals, subst);
     }
 
+    // ─── Decisions (axiom-i01) ──────────────────────────────────────
+
+    pub const DecisionOutcome = enum { allow, deny, indeterminate };
+
+    pub const Decision = struct {
+        outcome: DecisionOutcome,
+        reasons: []const []const u8,
+        evidence: []const []const u8,
+    };
+
+    /// Reserved context atom for decision inputs.
+    pub const decision_ctx = "axiom_decision_ctx";
+
+    /// Evaluate the KB's decision rules for (subject, action[, resource]).
+    /// Conflict resolution is deny-overrides: any derivable deny wins;
+    /// allow requires at least one allow and zero denies; neither =>
+    /// indeterminate. Inputs are asserted in a temporary scope (popped
+    /// afterward), so repeated calls do not accumulate clauses.
+    pub fn decide(self: *Engine, subject: []const u8, action: []const u8, resource: ?[]const u8) !Decision {
+        const a = self.allocator;
+        const before = self.clauses.items.len;
+        defer {
+            // pop the temp-asserted ctx facts (asserts append at the end)
+            while (self.clauses.items.len > before) {
+                _ = self.clauses.pop();
+            }
+        }
+
+        const ctx: Term = .{ .atom = decision_ctx };
+        try self.addClause(.{ .head = .{ .functor = "subject", .args = try dupTerms(a, &.{ ctx, .{ .atom = try a.dupe(u8, subject) } }) }, .body = &.{} });
+        try self.addClause(.{ .head = .{ .functor = "action", .args = try dupTerms(a, &.{ ctx, .{ .atom = try a.dupe(u8, action) } }) }, .body = &.{} });
+        if (resource) |r| {
+            try self.addClause(.{ .head = .{ .functor = "resource", .args = try dupTerms(a, &.{ ctx, .{ .atom = try a.dupe(u8, r) } }) }, .body = &.{} });
+        }
+
+        // query: outcome(ctx, O)
+        const out_var: Term = .{ .variable = "AxiomDecideO" };
+        const goal: Goal = .{ .call = .{ .functor = "outcome", .args = try dupTerms(a, &.{ ctx, out_var }) } };
+        const goals = try a.alloc(Goal, 1);
+        goals[0] = goal;
+        const solutions = try self.solveAll(goals);
+
+        // deny-overrides
+        var winner: ?usize = null;
+        var outcome: DecisionOutcome = .indeterminate;
+        for (solutions, 0..) |sol, i| {
+            const bound = sol.walk(out_var);
+            if (bound != .atom) continue;
+            if (std.mem.eql(u8, bound.atom, "deny")) {
+                outcome = .deny;
+                winner = i;
+                break;
+            }
+            if (std.mem.eql(u8, bound.atom, "allow") and outcome == .indeterminate) {
+                outcome = .allow;
+                winner = i;
+            }
+        }
+        if (winner == null) {
+            return .{ .outcome = .indeterminate, .reasons = &.{}, .evidence = &.{} };
+        }
+
+        // reasons: explicit reason_id(ctx, R) bindings take precedence
+        var reasons: std.ArrayList([]const u8) = .empty;
+        var evidence: std.ArrayList([]const u8) = .empty;
+
+        const r_var: Term = .{ .variable = "AxiomDecideR" };
+        const r_goals = try a.alloc(Goal, 1);
+        r_goals[0] = .{ .call = .{ .functor = "reason_id", .args = try dupTerms(a, &.{ ctx, r_var }) } };
+        const r_solutions = try self.solveAll(r_goals);
+        for (r_solutions) |sol| {
+            const bound = sol.walk(r_var);
+            if (bound == .atom) try appendUnique(a, &reasons, bound.atom);
+        }
+
+        // witness proof of the winning outcome: rule labels + fact evidence
+        const outcome_atom: []const u8 = if (outcome == .deny) "deny" else "allow";
+        const win_goal: Term.Compound = .{ .functor = "outcome", .args = try dupTerms(a, &.{ ctx, .{ .atom = outcome_atom } }) };
+        var witness = try solutions[winner.?].clone();
+        if (try explain.proveGoalPublic(self, win_goal, &witness, 0)) |tree| {
+            try collectFromProof(a, &tree, &reasons, &evidence, reasons.items.len > 0);
+        }
+
+        return .{
+            .outcome = outcome,
+            .reasons = try reasons.toOwnedSlice(a),
+            .evidence = try evidence.toOwnedSlice(a),
+        };
+    }
+
+    fn dupTerms(a: std.mem.Allocator, terms: []const Term) ![]Term {
+        const out = try a.alloc(Term, terms.len);
+        @memcpy(out, terms);
+        return out;
+    }
+
+    fn appendUnique(a: std.mem.Allocator, list: *std.ArrayList([]const u8), item: []const u8) !void {
+        for (list.items) |existing| {
+            if (std.mem.eql(u8, existing, item)) return;
+        }
+        try list.append(a, item);
+    }
+
+    fn collectFromProof(a: std.mem.Allocator, node: *const proof.ProofNode, reasons: *std.ArrayList([]const u8), evidence: *std.ArrayList([]const u8), skip_reasons: bool) !void {
+        switch (node.kind) {
+            .rule => {
+                if (!skip_reasons) {
+                    if (node.clause_label.len > 0) {
+                        try appendUnique(a, reasons, node.clause_label);
+                    } else {
+                        var hex_buf: [16]u8 = undefined;
+                        const hex = identity.hashHex(node.clause_id, &hex_buf);
+                        try appendUnique(a, reasons, try a.dupe(u8, hex));
+                    }
+                }
+            },
+            .fact => {
+                // temp-asserted ctx triples are scaffolding, not evidence
+                if (!mentionsCtx(node.goal)) {
+                    const sentence = try english.goalToEnglish(a, node.goal);
+                    try appendUnique(a, evidence, sentence);
+                }
+            },
+            else => {},
+        }
+        for (node.children) |*child| {
+            try collectFromProof(a, child, reasons, evidence, skip_reasons);
+        }
+    }
+
+    fn mentionsCtx(c: Term.Compound) bool {
+        for (c.args) |arg| {
+            if (arg == .atom and std.mem.eql(u8, arg.atom, decision_ctx)) return true;
+        }
+        return false;
+    }
+
     // ─── Variable Renaming ─────────────────────────────────────────────
 
     const RenameError = std.mem.Allocator.Error;

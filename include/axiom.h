@@ -91,6 +91,33 @@ const char *axiom_result_get_binding(const AxiomResult *result,
                                      size_t solution_index,
                                      const char *var_name);
 
+/* ─── Decisions (axiom-i01) ─────────────────────────────────────────── */
+
+typedef enum {
+    AXIOM_DECISION_ALLOW = 0,
+    AXIOM_DECISION_DENY = 1,
+    AXIOM_DECISION_INDETERMINATE = 2
+} AxiomDecisionOutcome;
+
+typedef struct {
+    AxiomDecisionOutcome outcome;
+    const char *subject;
+    const char *action;
+    const char *resource;        /* NULL when not provided */
+    size_t reason_count;
+    const char **reasons;        /* rule labels or 16-hex clause ids */
+    size_t evidence_count;
+    const char **evidence;       /* canonical-English ground facts */
+} AxiomDecision;
+
+/* Evaluate decision rules for (subject, action[, resource]). resource may
+ * be NULL. Conflict resolution is deny-overrides: any derivable deny wins;
+ * allow requires at least one allow and zero denies; neither derivable
+ * yields INDETERMINATE. The decision and all strings are owned by the
+ * program's arena: valid until axiom_free, do not free individually. */
+AxiomDecision *axiom_decide(AxiomProgram *program, const char *subject,
+                            const char *action, const char *resource);
+
 /* Free a query result. Must be called for every result from axiom_query_*. */
 void axiom_result_free(AxiomResult *result);
 

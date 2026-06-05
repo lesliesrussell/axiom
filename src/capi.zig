@@ -316,3 +316,71 @@ export fn axiom_clause_count(handle: ?*ProgramHandle) usize {
 export fn axiom_set_trace(handle: ?*ProgramHandle, enabled: bool) void {
     if (handle) |h| h.engine.trace_enabled = enabled;
 }
+
+// ─── Decisions (axiom-i01) ──────────────────────────────────────────────────
+
+pub const AxiomDecisionOutcome = enum(c_int) {
+    allow = 0,
+    deny = 1,
+    indeterminate = 2,
+};
+
+pub const AxiomDecision = extern struct {
+    outcome: AxiomDecisionOutcome,
+    subject: [*:0]const u8,
+    action: [*:0]const u8,
+    resource: ?[*:0]const u8,
+    reason_count: usize,
+    reasons: ?[*]const [*:0]const u8,
+    evidence_count: usize,
+    evidence: ?[*]const [*:0]const u8,
+};
+
+fn dupeZ(alloc: std.mem.Allocator, s: []const u8) ?[*:0]const u8 {
+    const buf = alloc.allocSentinel(u8, s.len, 0) catch return null;
+    @memcpy(buf, s);
+    return buf.ptr;
+}
+
+fn dupeStringList(alloc: std.mem.Allocator, items: []const []const u8) ?[*]const [*:0]const u8 {
+    if (items.len == 0) return null;
+    const out = alloc.alloc([*:0]const u8, items.len) catch return null;
+    for (items, 0..) |item, i| {
+        out[i] = dupeZ(alloc, item) orelse return null;
+    }
+    return out.ptr;
+}
+
+/// Evaluate decision rules for (subject, action[, resource]).
+/// Deny-overrides conflict resolution. Result and all strings are owned
+/// by the program's arena — valid until axiom_free, do not free.
+export fn axiom_decide(handle: ?*ProgramHandle, subject: ?[*:0]const u8, action: ?[*:0]const u8, resource: ?[*:0]const u8) ?*AxiomDecision {
+    const h = handle orelse return null;
+    const subj = subject orelse return null;
+    const act = action orelse return null;
+    const alloc = h.arena.allocator();
+
+    // copy inputs into the arena (existing capi memory-safety policy)
+    const subj_s = alloc.dupe(u8, std.mem.span(subj)) catch return null;
+    const act_s = alloc.dupe(u8, std.mem.span(act)) catch return null;
+    const res_s: ?[]const u8 = if (resource) |r| alloc.dupe(u8, std.mem.span(r)) catch return null else null;
+
+    const decision = h.engine.decide(subj_s, act_s, res_s) catch return null;
+
+    const out = alloc.create(AxiomDecision) catch return null;
+    out.* = .{
+        .outcome = switch (decision.outcome) {
+            .allow => .allow,
+            .deny => .deny,
+            .indeterminate => .indeterminate,
+        },
+        .subject = dupeZ(alloc, subj_s) orelse return null,
+        .action = dupeZ(alloc, act_s) orelse return null,
+        .resource = if (res_s) |r| dupeZ(alloc, r) else null,
+        .reason_count = decision.reasons.len,
+        .reasons = dupeStringList(alloc, decision.reasons),
+        .evidence_count = decision.evidence.len,
+        .evidence = dupeStringList(alloc, decision.evidence),
+    };
+    return out;
+}

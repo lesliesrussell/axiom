@@ -67,6 +67,11 @@ pub const Parser = struct {
             if (self.tryClosedWorldDecl()) |stmt| return stmt;
         }
 
+        // axiom-i01: "Should <subject> <action> [<resource>]?"
+        if (first.tag == .variable and std.mem.eql(u8, first.lexeme, "Should")) {
+            if (self.tryShouldQuery()) |stmt| return stmt;
+        }
+
         // Queries
         if (first.tag == .kw_is) return self.parseYesNoQuery();
         if (first.tag == .kw_who) return self.parseWhoQuery();
@@ -126,6 +131,36 @@ pub const Parser = struct {
         self.pos += 1;
         try self.expectDot();
         return .{ .command = .{ .include = filename } };
+    }
+
+    // axiom-i01
+    fn tryShouldQuery(self: *Parser) ?Statement {
+        const saved = self.pos;
+        self.pos += 1; // "Should"
+        // subject: lowercase atom or capitalized name
+        if (!isIdentLike(self.peek().tag) and self.peek().tag != .variable) {
+            self.pos = saved;
+            return null;
+        }
+        const subject = self.peek().lexeme;
+        self.pos += 1;
+        if (!isIdentLike(self.peek().tag)) {
+            self.pos = saved;
+            return null;
+        }
+        const action = self.peek().lexeme;
+        self.pos += 1;
+        var resource: ?[]const u8 = null;
+        if (isIdentLike(self.peek().tag) or self.peek().tag == .variable) {
+            resource = self.peek().lexeme;
+            self.pos += 1;
+        }
+        if (self.peek().tag != .question) {
+            self.pos = saved;
+            return null;
+        }
+        self.pos += 1;
+        return .{ .should_query = .{ .subject = subject, .action = action, .resource = resource } };
     }
 
     // axiom-d4s

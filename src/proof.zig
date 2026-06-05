@@ -14,6 +14,8 @@ pub const ProofNode = struct {
     goal: Term.Compound,
     kind: Kind,
     children: []const ProofNode,
+    clause_id: u64 = 0, // axiom-i01: matched clause's stable id
+    clause_label: []const u8 = "", // axiom-i01: '% id:' label when present
 
     pub const Kind = enum {
         fact, // matched a body-less clause
@@ -46,7 +48,15 @@ pub fn printTree(node: *const ProofNode, subst: *const Substitution, allocator: 
     output.style(.dim); // axiom-wk4
     switch (node.kind) {
         .fact => writeRaw("  [fact]"),
-        .rule => writeRaw("  [rule]"),
+        .rule => {
+            // axiom-i01: surface the rule's label when it has one
+            writeRaw("  [rule");
+            if (node.clause_label.len > 0) {
+                writeRaw(" ");
+                writeRaw(node.clause_label);
+            }
+            writeRaw("]");
+        },
         .builtin => writeRaw("  [built-in]"),
         .negation => writeRaw("  [negation]"),
         .truncated => writeRaw("  [...]"),

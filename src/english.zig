@@ -48,6 +48,19 @@ pub fn clauseToEnglish(allocator: std.mem.Allocator, clause: Clause) ![]const u8
     return buf.toOwnedSlice(allocator);
 }
 
+/// Render a single (typically ground) goal compound as canonical English
+/// without the trailing period — used for decision evidence. axiom-i01
+pub fn goalToEnglish(allocator: std.mem.Allocator, c: Term.Compound) ![]const u8 {
+    var buf: std.ArrayList(u8) = .empty;
+    var w = Writer{ .allocator = allocator, .buf = &buf };
+    if (compoundMappable(c)) {
+        try w.compoundEnglish(c, false);
+    } else {
+        try w.rawCompound(c);
+    }
+    return buf.toOwnedSlice(allocator);
+}
+
 /// False when any part of the clause needs the raw-functor fallback.
 pub fn isFullyMappable(clause: Clause) bool {
     if (!compoundMappable(clause.head)) return false;

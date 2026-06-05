@@ -69,6 +69,11 @@ fn isProvable(eng: *Engine, c: Term.Compound, witness: *const Substitution) Erro
     return found;
 }
 
+/// Public entry for Engine.decide — same directed search. axiom-i01
+pub fn proveGoalPublic(eng: *Engine, compound: Term.Compound, witness: *Substitution, depth: usize) Error!?ProofNode {
+    return proveGoal(eng, compound, witness, depth);
+}
+
 /// Directed proof search. Unifications are committed into `witness` so
 /// sibling body goals see bindings made by earlier ones (body-local
 /// variables). Returns null when no proof exists.
@@ -88,7 +93,7 @@ fn proveGoal(eng: *Engine, compound: Term.Compound, witness: *Substitution, dept
 
         if (renamed.body.len == 0) {
             witness.* = attempt;
-            return ProofNode{ .goal = wc, .kind = .fact, .children = &.{} };
+            return ProofNode{ .goal = wc, .kind = .fact, .children = &.{}, .clause_id = clause.id, .clause_label = clause.label };
         }
 
         var kids: std.ArrayList(ProofNode) = .empty;
@@ -115,7 +120,13 @@ fn proveGoal(eng: *Engine, compound: Term.Compound, witness: *Substitution, dept
         }
 
         witness.* = attempt;
-        return ProofNode{ .goal = wc, .kind = .rule, .children = try kids.toOwnedSlice(eng.allocator) };
+        return ProofNode{
+            .goal = wc,
+            .kind = .rule,
+            .children = try kids.toOwnedSlice(eng.allocator),
+            .clause_id = clause.id, // axiom-i01
+            .clause_label = clause.label,
+        };
     }
 
     return null;

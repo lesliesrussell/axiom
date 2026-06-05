@@ -176,6 +176,10 @@ const Axiom = struct {
                 };
                 output("  Mode: {s}/{d}\n", .{ decl.pred_name, decl.arg_modes.len });
             },
+            // axiom-i01
+            .should_query => |q| {
+                self.runDecide(q.subject, q.action, q.resource);
+            },
             // axiom-d4s
             .closed_world_decl => |name| {
                 self.engine.declareClosedWorld(name) catch |err| {
@@ -204,6 +208,35 @@ const Axiom = struct {
                     }
                 }
             },
+        }
+    }
+
+    // axiom-i01
+    fn runDecide(self: *Axiom, subject: []const u8, action: []const u8, resource: ?[]const u8) void {
+        const decision = self.engine.decide(subject, action, resource) catch |err| {
+            errOut("Decision error: {}\n", .{err});
+            return;
+        };
+        switch (decision.outcome) {
+            .allow => okStr("Allow.\n"),
+            .deny => errStr("Deny.\n"),
+            .indeterminate => writeStr("Indeterminate. (no outcome rule matched)\n"),
+        }
+        if (decision.reasons.len > 0) {
+            writeStr("Reasons:\n");
+            for (decision.reasons) |r| {
+                writeStr("  - ");
+                writeStr(r);
+                writeStr("\n");
+            }
+        }
+        if (decision.evidence.len > 0) {
+            writeStr("Evidence:\n");
+            for (decision.evidence) |e| {
+                writeStr("  - ");
+                writeStr(e);
+                writeStr(".\n");
+            }
         }
     }
 
@@ -804,6 +837,7 @@ const Axiom = struct {
             \\  Facts:    Socrates is a man.
             \\  Rules:    X is mortal if X is a man.
             \\  Queries:  Is Socrates mortal?  /  Who is mortal?
+            \\  Decision: Should leslie log_in?  (deny-overrides)
             \\  Negation: X is not banned.
             \\  Include:  include "file.axm".
             \\  Det:      X is a Y! if ...   (! det, ? semidet, * nondet)

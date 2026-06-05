@@ -245,6 +245,11 @@ pub const Statement = union(enum) {
     command: Command,
     mode_decl: ModeDecl,
     closed_world_decl: []const u8, // axiom-d4s: predicate name
+    should_query: struct { // axiom-i01: Should <subject> <action> [<resource>]?
+        subject: []const u8,
+        action: []const u8,
+        resource: ?[]const u8,
+    },
 };
 
 pub const QueryKind = enum {
