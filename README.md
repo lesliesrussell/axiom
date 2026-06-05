@@ -44,6 +44,7 @@ Implemented in [Zig](https://ziglang.org). Ships as a CLI/REPL, a Zig module, an
   - [Commands](#commands)
   - [Tracing](#tracing)
   - [Proof Explanation](#proof-explanation)
+- [Decisions: Policy as Queries](#decisions-policy-as-queries)
 - [Built-in Predicates](#built-in-predicates)
 - [Standard Library](#standard-library)
 - [Embedding](#embedding)
@@ -263,13 +264,26 @@ entirely.
 | Command | Effect |
 |---|---|
 | `:load <file>` | Load and process a `.axm` file |
+| `:reload` | Clear, then re-load every loaded file (edit-retest loop) |
+| `:save <file>` | Write the KB back out as its original English sentences |
 | `:show` | List all loaded clauses in internal form |
+| `:show facts` / `:show rules` | Filtered listing (global indices kept) |
+| `:show ids` | Listing with stable clause ids and `% id:` labels |
+| `:show english` | Canonical English rendering (phrasing-normalized) |
+| `:retract <n>` | Remove clause *n* by its `:show` index |
+| `:clear` | Remove all clauses and declarations |
+| `:diff <old> <new>` | Semantic clause diff between two `.axm` files |
+| `:whatif <old> <new> <inputs>` | Decision deltas between two policy versions |
 | `:trace on` / `:trace off` | Toggle execution tracing |
-| `:why` | Explain the last successful query |
-| `:pred` | Inspect predicate signatures |
-| `:check` | Sanity-check the loaded program |
+| `:why [n]` | Proof tree for solution *n* of the last query (default 1) |
+| `:pred name/arity` | Inspect a predicate (determinism, modes, closed-world) |
+| `:check` | Determinism/mode checks + unsafe-negation lint |
 | `:help` | Show command help |
 | `:quit` / `:q` | Exit |
+
+Parse errors echo the offending line with a caret and a phrasing hint for
+common unsupported English (plurals, contractions, head-first
+conditionals). File loads report skipped statements as `file:line:col`.
 
 ### Tracing
 
@@ -287,15 +301,84 @@ Events: `[CALL]` enter goal · `[EXIT]` succeeded · `[FAIL]` failed · `[REDO]`
 
 ### Proof Explanation
 
+Proof trees are real and recursive — every sub-goal is re-proven and
+labeled honestly (`[fact]`, `[rule]`, `[built-in]`, `[negation]`), and
+rules named with a `% id:` comment show their label:
+
 ```text
-axiom> Is Socrates mortal?
+axiom> Is Tom special?
 Yes.
 axiom> :why
 
 Because:
-  - mortal(socrates)  [rule]
-    - man(socrates)  [fact]
+  - special(tom)  [rule]
+    - grandparent(tom, ann)  [rule grandparent_def]
+      - parent(tom, bob)  [fact]
+      - parent(bob, ann)  [fact]
 ```
+
+With multiple solutions, `:why 2` explains the second one.
+
+---
+
+## Decisions: Policy as Queries
+
+The deterministic policy layer from the pitch above. Decision rules are
+ordinary rules over a conventional schema — `outcome/2` with
+`subject/action/resource` inputs — and resolve with **deny-overrides**:
+one matching deny beats any number of allows; nothing matching is
+*indeterminate* (and indeterminate is not allowed).
+
+```text
+% id: licensed_captains_dock
+D has outcome allow
+  if D has subject C and D has action dock
+  and C is a captain of S and C has license freight_class_a.
+
+% id: flagged_ships_grounded
+D has outcome deny
+  if D has subject C and C is a captain of S and S is flagged.
+```
+
+```text
+axiom> Should thane dock?
+Deny.
+Reasons:
+  - flagged_ships_grounded
+Evidence:
+  - thane is a captain of ironclad.
+  - ironclad is a flagged.
+
+axiom> Why not?
+Deny rules in effect:
+  - flagged_ships_grounded, relying on: "ironclad is a flagged"
+Allow would need:
+  - licensed_captains_dock: blocked at "thane is a license of freight_class_a"
+
+axiom> Which actions can mirelle perform?
+  dock
+  refuel
+  unload_cargo
+```
+
+`Why not?` is counterfactual analysis: which facts the active denies rely
+on, and the first blocking condition of each allow rule that didn't fire.
+Declare the action universe with `Dock is an action.` facts to power
+`Which actions …`. The same machinery is exposed to C
+(`axiom_decide`, `axiom_allowed_actions`) and used by the
+[`examples/guardrail/`](examples/guardrail/) LLM-agent demo.
+
+For policy-as-code workflows, `:diff` shows clause-level semantic changes
+between two file versions (variable renaming is invisible — clauses carry
+alpha-normalized identity hashes) and `:whatif` reports which decisions
+flip between versions.
+
+Safer negation for policy KBs: `:check` lints negation over unbound
+variables, and `Predicate banned is closed_world.` declares
+absence-is-falsity explicitly — `Is x banned?` then answers
+`No (by closed-world assumption; no proof found).` The
+`lib/policy.axm` pattern adds a three-valued
+allowed / denied / **unknown** status on top.
 
 ---
 
@@ -339,6 +422,12 @@ include "lib/math.axm".
 % provides: X is smaller_than Y  (less_than)
 %           X is bigger_than Y   (greater_than)
 %           X is equal_to Y      (equal)
+
+include "lib/policy.axm".
+% provides: X has status allowed | denied | unknown
+% three-valued clearance over a subject/1 domain — define subject/1,
+% allowed/1, denied/1 in your KB (see the file header for the safe
+% negation idiom it demonstrates)
 ```
 
 ---
@@ -384,7 +473,26 @@ Memory model: `axiom_new()` allocates an arena; every string returned is valid u
 
 Each `AxiomProgram` is **single-threaded** — use one instance per thread.
 
-The full FFI surface (load, assert, structured + English queries, result iteration, trace toggle) is documented in `docs/library.md`.
+The decision layer is fully exposed:
+
+```c
+AxiomDecision *d = axiom_decide(p, "thane", "dock", NULL);
+if (d->outcome != AXIOM_DECISION_ALLOW) {          /* deny-overrides */
+    for (size_t i = 0; i < d->reason_count; i++)
+        printf("rule: %s\n", d->reasons[i]);       /* '% id:' labels  */
+    size_t n;
+    const char **alts = axiom_allowed_actions(p, "thane", NULL, &n);
+    /* feed reasons + evidence + alternatives back to your agent */
+}
+```
+
+Plus version analysis: `axiom_diff_programs(oldp, newp, &n)` for
+clause-level semantic diffs and `axiom_compare_decisions(...)` for
+decision deltas across policy versions. See
+[`examples/guardrail/`](examples/guardrail/) for the complete agent-gate
+pattern.
+
+The full FFI surface (load, assert, structured + English queries, result iteration, decisions, diffs, trace toggle) is documented in `docs/library.md`.
 
 ### Zig Module
 
@@ -458,11 +566,21 @@ A short tour of `src/`:
 | `lexer.zig` | Tokenizer for the controlled-English surface syntax |
 | `parser.zig` | Pattern-matching parser → high-level sentence AST |
 | `desugar.zig` | Lowers English sentences into Horn clauses (`head :- body.`) |
-| `engine.zig` | Unification, backtracking, cut, negation-as-failure, built-ins, tracing, proof tree |
-| `types.zig` | Core term types (`Term`, `Clause`, `Substitution`, …) shared across modules |
-| `lib.zig` | Public Zig module — `Program`, `QueryIterator`, exposed via `@import("axiom")` |
+| `engine.zig` | Resolution coordinator: clause store, solve loop, renaming, decisions |
+| `substitution.zig` | Bindings and unification |
+| `builtins.zig` | Built-in predicates (comparisons, lists) |
+| `explain.zig` | Witness re-prover: deep `:why` trees, decision reasons/evidence, `Why not?` |
+| `proof.zig` | Proof-tree representation and printing |
+| `checks.zig` | Predicate info, determinism/mode checks, unsafe-negation lint |
+| `identity.zig` | Alpha-normalized clause hashes (stable rule identity) |
+| `english.zig` | Canonical English pretty-printer (`:show english`, diff renderings) |
+| `diff.zig` | Clause-level semantic diff between programs |
+| `output.zig` | `std.fmt`-free output helpers + ANSI styling |
+| `types.zig` | Core term types shared across modules |
+| `editor.zig` | Raw-mode line editor: emacs bindings, history, tab/fzf completion |
+| `lib.zig` | Public Zig module — `Program`, `QueryIterator`, `decide` |
 | `capi.zig` | C ABI shim — opaque handles, `extern fn`s matching `include/axiom.h` |
-| `main.zig` | CLI entrypoint and REPL (`:load`, `:trace`, `:why`, `:pred`, `:check`, …) |
+| `main.zig` | CLI entrypoint and REPL |
 
 Pipeline: **source → lexer → parser → desugar → engine**. The CLI, the Zig module, and the C FFI are three thin frontends sharing the same core modules; `build.zig` wires them up as separate artifacts (executable, static lib, shared lib) backed by the same internal modules.
 
@@ -476,11 +594,13 @@ axiom/
 ├── build.zig.zon        # package manifest
 ├── src/                 # Zig source — engine, parser, REPL, FFI shim
 ├── include/axiom.h      # public C header
-├── lib/                 # standard-library .axm files (lists, math)
-├── examples/            # tutorial + RBAC + dungeon + family + FFI test
+├── lib/                 # standard-library .axm files (lists, math, policy)
+├── examples/            # tutorial, starport tour, RBAC, dungeon, guardrail demo, FFI test
+├── scripts/             # PTY-driver tests for the interactive editor
 ├── docs/
 │   ├── language.md      # full language reference
-│   └── library.md       # full embedding guide (C FFI + Zig module)
+│   ├── library.md       # full embedding guide (C FFI + Zig module)
+│   └── superpowers/specs/  # design docs, one per shipped feature
 └── zig-out/             # build artifacts (after `zig build`)
 ```
 
