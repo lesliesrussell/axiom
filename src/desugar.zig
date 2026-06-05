@@ -70,6 +70,13 @@ pub const Desugarer = struct {
         }
     }
 
+    // axiom-fu6: documented comparison wrappers
+    fn canonFunctor(name: []const u8) []const u8 {
+        if (std.mem.eql(u8, name, "smaller_than")) return "less_than";
+        if (std.mem.eql(u8, name, "bigger_than")) return "greater_than";
+        return name;
+    }
+
     fn sentenceToCompound(self: *Desugarer, sent: Sentence) DesugarError!Term.Compound {
         const subject_term = try self.npToTerm(sent.subject);
 
@@ -78,7 +85,7 @@ pub const Desugarer = struct {
                 if (ia.of_arg) |of_np| {
                     const obj_term = try self.npToTerm(of_np.*);
                     return .{
-                        .functor = ia.noun,
+                        .functor = canonFunctor(ia.noun), // axiom-fu6
                         .args = try self.allocSlice(Term, &.{ subject_term, obj_term }),
                     };
                 }
@@ -149,7 +156,7 @@ pub const Desugarer = struct {
                     .predicate_with_arg => |pa| {
                         const arg_term = try self.npToTerm(pa.arg);
                         return .{
-                            .functor = pa.pred,
+                            .functor = canonFunctor(pa.pred), // axiom-fu6
                             .args = try self.allocSlice(Term, &.{ subject_term, arg_term }),
                         };
                     },
