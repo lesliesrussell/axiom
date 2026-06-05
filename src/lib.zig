@@ -50,15 +50,27 @@ pub const Program = struct {
         var lex = lexer_mod.Lexer.init(source);
         const tokens = try lex.tokenize(self.allocator);
         var parser = parser_mod.Parser.init(tokens, self.allocator);
-        const stmts = try parser.parseProgram();
 
-        for (stmts) |stmt| {
-            var desugarer = desugar_mod.Desugarer.init(self.allocator);
-            if (try desugarer.desugar(stmt)) |result| {
-                switch (result) {
-                    .clause => |clause| try self.engine.addClause(clause),
-                    .query => {},
+        // axiom-02w: per-statement parsing captures source spans and
+        // '% id:' labels, same as the REPL loader
+        while (parser.peek().tag != .eof) {
+            const start_idx = parser.pos;
+            if (parser.parseStatement()) |stmt| {
+                const span = types.statementSpan(source, tokens, start_idx, parser.pos - 1);
+                var desugarer = desugar_mod.Desugarer.init(self.allocator);
+                if (try desugarer.desugar(stmt)) |result| {
+                    switch (result) {
+                        .clause => |clause| {
+                            var c = clause;
+                            c.source_text = span;
+                            c.label = types.labelBefore(source, span);
+                            try self.engine.addClause(c);
+                        },
+                        .query => {},
+                    }
                 }
+            } else |_| {
+                parser.recover();
             }
         }
     }
@@ -109,6 +121,12 @@ pub const Program = struct {
     /// Deny-overrides; see Engine.decide. axiom-i01
     pub fn decide(self: *Program, subject: []const u8, action: []const u8, resource: ?[]const u8) !engine_mod.Engine.Decision {
         return self.engine.decide(subject, action, resource);
+    }
+
+    /// Actions from the KB's action/1 universe that decide() allows for
+    /// this subject[/resource]. axiom-02w
+    pub fn allowedActions(self: *Program, subject: []const u8, resource: ?[]const u8) ![]const []const u8 {
+        return self.engine.allowedActions(subject, resource);
     }
 
     /// Get the number of loaded clauses

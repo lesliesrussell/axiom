@@ -60,49 +60,11 @@ const REPL_COMMANDS = [_][]const u8{
     ":trace", ":trace on", ":trace off", ":why",
 };
 
-// axiom-76a
-// Byte offset of (1-based) line/col in source. Lexer counts cols per byte.
-fn byteOffsetOf(source: []const u8, line: usize, col: usize) usize {
-    var cur_line: usize = 1;
-    var i: usize = 0;
-    while (i < source.len and cur_line < line) : (i += 1) {
-        if (source[i] == '\n') cur_line += 1;
-    }
-    return @min(i + col - 1, source.len);
-}
+// axiom-76a / axiom-ekd — moved to types.zig (axiom-02w) so the lib and
+// C-API loaders share span and label capture.
+const statementSpan = types.statementSpan;
+const labelBefore = types.labelBefore;
 
-// axiom-76a
-// Source span of a statement from its first through last token (inclusive).
-// Token lexemes can be static literals, so offsets come from line/col.
-fn statementSpan(source: []const u8, tokens: []const types.Token, start_idx: usize, end_idx: usize) []const u8 {
-    if (start_idx >= tokens.len or end_idx >= tokens.len or end_idx < start_idx) return "";
-    const st = tokens[start_idx];
-    const et = tokens[end_idx];
-    const s = byteOffsetOf(source, st.line, st.col);
-    const e = @min(byteOffsetOf(source, et.line, et.col) + et.lexeme.len, source.len);
-    if (e <= s) return "";
-    return source[s..e];
-}
-
-// axiom-ekd
-// '% id: <label>' on the line immediately above a statement names it.
-fn labelBefore(source: []const u8, span: []const u8) []const u8 {
-    if (span.len == 0) return "";
-    const offset = @intFromPtr(span.ptr) - @intFromPtr(source.ptr);
-    if (offset == 0 or offset > source.len) return "";
-    // walk back over whitespace to the end of the previous line
-    var i = offset;
-    while (i > 0 and (source[i - 1] == ' ' or source[i - 1] == '\t' or source[i - 1] == '\n' or source[i - 1] == '\r')) i -= 1;
-    if (i == 0) return "";
-    // find the start of that line
-    const line_end = i;
-    var line_start = i;
-    while (line_start > 0 and source[line_start - 1] != '\n') line_start -= 1;
-    const line = std.mem.trim(u8, source[line_start..line_end], &std.ascii.whitespace);
-    const prefix = "% id:";
-    if (!std.mem.startsWith(u8, line, prefix)) return "";
-    return std.mem.trim(u8, line[prefix.len..], &std.ascii.whitespace);
-}
 
 // axiom-aof
 fn printReasonsIndented(tag: []const u8, reasons: []const []const u8) void {
@@ -194,6 +156,10 @@ const Axiom = struct {
             .should_query => |q| {
                 self.runDecide(q.subject, q.action, q.resource);
             },
+            // axiom-02w
+            .which_actions_query => |q| {
+                self.runAllowedActions(q.subject, q.resource);
+            },
             // axiom-d4s
             .closed_world_decl => |name| {
                 self.engine.declareClosedWorld(name) catch |err| {
@@ -252,6 +218,25 @@ const Axiom = struct {
                 writeStr(".\n");
             }
         }
+    }
+
+    // axiom-02w
+    fn runAllowedActions(self: *Axiom, subject: []const u8, resource: ?[]const u8) void {
+        const actions = self.engine.allowedActions(subject, resource) catch |err| {
+            errOut("Decision error: {}\n", .{err});
+            return;
+        };
+        if (actions.len == 0) {
+            writeStr("No allowed actions.\n");
+            return;
+        }
+        eout.style(.ok);
+        for (actions) |a| {
+            writeStr("  ");
+            writeStr(a);
+            writeStr("\n");
+        }
+        eout.style(.reset);
     }
 
     // axiom-d4s
@@ -1008,6 +993,7 @@ const Axiom = struct {
             \\  Rules:    X is mortal if X is a man.
             \\  Queries:  Is Socrates mortal?  /  Who is mortal?
             \\  Decision: Should leslie log_in?  (deny-overrides)
+            \\            Which actions can leslie perform on prod?
             \\  Negation: X is not banned.
             \\  Include:  include "file.axm".
             \\  Det:      X is a Y! if ...   (! det, ? semidet, * nondet)

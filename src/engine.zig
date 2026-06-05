@@ -374,6 +374,36 @@ pub const Engine = struct {
         };
     }
 
+    /// Enumerate the KB's action universe (arity-1 action/1 facts) and
+    /// return the actions that decide() resolves to allow for this
+    /// subject[/resource]. axiom-02w
+    pub fn allowedActions(self: *Engine, subject: []const u8, resource: ?[]const u8) ![]const []const u8 {
+        const a = self.allocator;
+        const act_var: Term = .{ .variable = "AxiomActA" };
+        const goals = try a.alloc(Goal, 1);
+        goals[0] = .{ .call = .{ .functor = "action", .args = try dupTerms(a, &.{act_var}) } };
+        const solutions = try self.solveAll(goals);
+
+        var allowed: std.ArrayList([]const u8) = .empty;
+        for (solutions) |sol| {
+            const bound = sol.walk(act_var);
+            if (bound != .atom) continue;
+            const candidate = bound.atom;
+            // dedupe (multiple identical facts)
+            var dup = false;
+            for (allowed.items) |existing| {
+                if (std.mem.eql(u8, existing, candidate)) {
+                    dup = true;
+                    break;
+                }
+            }
+            if (dup) continue;
+            const d = try self.decide(subject, candidate, resource);
+            if (d.outcome == .allow) try allowed.append(a, candidate);
+        }
+        return allowed.toOwnedSlice(a);
+    }
+
     fn dupTerms(a: std.mem.Allocator, terms: []const Term) ![]Term {
         const out = try a.alloc(Term, terms.len);
         @memcpy(out, terms);

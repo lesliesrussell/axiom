@@ -7,6 +7,48 @@ pub const Allocator = std.mem.Allocator;
 // threads an explicit `std.Io` through fs and stdio APIs).
 var io_threaded: ?std.Io.Threaded = null;
 
+// axiom-02w (moved from main.zig so lib/capi loaders capture labels too)
+/// Byte offset of (1-based) line/col in source. The lexer counts columns
+/// per byte.
+pub fn byteOffsetOf(source: []const u8, line: usize, col: usize) usize {
+    var cur_line: usize = 1;
+    var i: usize = 0;
+    while (i < source.len and cur_line < line) : (i += 1) {
+        if (source[i] == '\n') cur_line += 1;
+    }
+    return @min(i + col - 1, source.len);
+}
+
+/// Source span of a statement from its first through last token
+/// (inclusive). Token lexemes can be static literals, so offsets come
+/// from line/col.
+pub fn statementSpan(source: []const u8, tokens: []const Token, start_idx: usize, end_idx: usize) []const u8 {
+    if (start_idx >= tokens.len or end_idx >= tokens.len or end_idx < start_idx) return "";
+    const st = tokens[start_idx];
+    const et = tokens[end_idx];
+    const s = byteOffsetOf(source, st.line, st.col);
+    const e = @min(byteOffsetOf(source, et.line, et.col) + et.lexeme.len, source.len);
+    if (e <= s) return "";
+    return source[s..e];
+}
+
+/// '% id: <label>' on the line immediately above a statement names it.
+pub fn labelBefore(source: []const u8, span: []const u8) []const u8 {
+    if (span.len == 0) return "";
+    const offset = @intFromPtr(span.ptr) - @intFromPtr(source.ptr);
+    if (offset == 0 or offset > source.len) return "";
+    var i = offset;
+    while (i > 0 and (source[i - 1] == ' ' or source[i - 1] == '\t' or source[i - 1] == '\n' or source[i - 1] == '\r')) i -= 1;
+    if (i == 0) return "";
+    const line_end = i;
+    var line_start = i;
+    while (line_start > 0 and source[line_start - 1] != '\n') line_start -= 1;
+    const line = std.mem.trim(u8, source[line_start..line_end], &std.ascii.whitespace);
+    const prefix = "% id:";
+    if (!std.mem.startsWith(u8, line, prefix)) return "";
+    return std.mem.trim(u8, line[prefix.len..], &std.ascii.whitespace);
+}
+
 pub fn defaultIo() std.Io {
     if (io_threaded == null) io_threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
     return io_threaded.?.io();
@@ -248,6 +290,10 @@ pub const Statement = union(enum) {
     should_query: struct { // axiom-i01: Should <subject> <action> [<resource>]?
         subject: []const u8,
         action: []const u8,
+        resource: ?[]const u8,
+    },
+    which_actions_query: struct { // axiom-02w: Which actions can S perform [on R]?
+        subject: []const u8,
         resource: ?[]const u8,
     },
 };

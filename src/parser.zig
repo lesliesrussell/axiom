@@ -76,7 +76,11 @@ pub const Parser = struct {
         if (first.tag == .kw_is) return self.parseYesNoQuery();
         if (first.tag == .kw_who) return self.parseWhoQuery();
         if (first.tag == .kw_what) return self.parseWhatQuery();
-        if (first.tag == .kw_which) return self.parseWhichQuery();
+        if (first.tag == .kw_which) {
+            // axiom-02w: "Which actions can <subject> perform [on <resource>]?"
+            if (self.tryWhichActionsQuery()) |stmt| return stmt;
+            return self.parseWhichQuery();
+        }
         if (first.tag == .kw_can) return self.parseCanQuery();
 
         // Every/Each
@@ -131,6 +135,49 @@ pub const Parser = struct {
         self.pos += 1;
         try self.expectDot();
         return .{ .command = .{ .include = filename } };
+    }
+
+    // axiom-02w
+    fn tryWhichActionsQuery(self: *Parser) ?Statement {
+        const saved = self.pos;
+        self.pos += 1; // "Which"
+        if (!isIdentLike(self.peek().tag) or !std.mem.eql(u8, self.peek().lexeme, "actions")) {
+            self.pos = saved;
+            return null;
+        }
+        self.pos += 1;
+        if (self.peek().tag != .kw_can) {
+            self.pos = saved;
+            return null;
+        }
+        self.pos += 1;
+        if (!isIdentLike(self.peek().tag) and self.peek().tag != .variable) {
+            self.pos = saved;
+            return null;
+        }
+        const subject = self.peek().lexeme;
+        self.pos += 1;
+        if (!isIdentLike(self.peek().tag) or !std.mem.eql(u8, self.peek().lexeme, "perform")) {
+            self.pos = saved;
+            return null;
+        }
+        self.pos += 1;
+        var resource: ?[]const u8 = null;
+        if (isIdentLike(self.peek().tag) and std.mem.eql(u8, self.peek().lexeme, "on")) {
+            self.pos += 1;
+            if (!isIdentLike(self.peek().tag) and self.peek().tag != .variable) {
+                self.pos = saved;
+                return null;
+            }
+            resource = self.peek().lexeme;
+            self.pos += 1;
+        }
+        if (self.peek().tag != .question) {
+            self.pos = saved;
+            return null;
+        }
+        self.pos += 1;
+        return .{ .which_actions_query = .{ .subject = subject, .resource = resource } };
     }
 
     // axiom-i01

@@ -118,6 +118,15 @@ typedef struct {
 AxiomDecision *axiom_decide(AxiomProgram *program, const char *subject,
                             const char *action, const char *resource);
 
+/* ─── Allowed alternatives (axiom-02w) ──────────────────────────────── */
+
+/* Actions from the KB's action/1 universe that decide() allows for this
+ * subject (resource may be NULL). Returns an array of strings owned by
+ * the program's arena (valid until axiom_free); count via out_count.
+ * Returns NULL when the count is zero. */
+const char **axiom_allowed_actions(AxiomProgram *program, const char *subject,
+                                   const char *resource, size_t *out_count);
+
 /* ─── Semantic diff + what-if (axiom-aof) ───────────────────────────── */
 
 typedef enum {

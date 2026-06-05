@@ -1,0 +1,34 @@
+% ═════════════════════════════════════════════════════════════════════════
+%  Ops guardrail policy — demo KB for the agent envelope.
+%  Schema: subject/2, action/2, resource/2 are decision inputs (asserted
+%  by axiom_decide under axiom_decision_ctx); outcome/2 rules resolve
+%  with deny-overrides; action/1 facts declare the action universe for
+%  allowed-alternatives enumeration.
+% ═════════════════════════════════════════════════════════════════════════
+
+% the team
+Leslie is an engineer.
+Sam is an engineer.
+Sam is oncall.
+Rae is a contractor.
+
+% the action universe
+Restart_service is an action.
+Read_logs is an action.
+Deploy_release is an action.
+Delete_database is an action.
+
+% id: engineers_read
+D has outcome allow if D has subject S and D has action read_logs and S is an engineer.
+
+% id: engineers_restart
+D has outcome allow if D has subject S and D has action restart_service and S is an engineer.
+
+% id: oncall_deploys
+D has outcome allow if D has subject S and D has action deploy_release and S is oncall.
+
+% id: nobody_deletes
+D has outcome deny if D has subject S and D has action delete_database.
+
+% id: contractors_limited
+D has outcome deny if D has subject S and S is a contractor and D has action deploy_release.

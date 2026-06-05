@@ -94,14 +94,26 @@ fn loadSourceInternal(h: *ProgramHandle, source: []const u8) !void {
     var lex = lexer_mod.Lexer.init(source);
     const tokens = try lex.tokenize(alloc);
     var parser = parser_mod.Parser.init(tokens, alloc);
-    const stmts = try parser.parseProgram();
-    for (stmts) |stmt| {
-        var desugarer = desugar_mod.Desugarer.init(alloc);
-        if (try desugarer.desugar(stmt)) |result| {
-            switch (result) {
-                .clause => |clause| try h.engine.addClause(clause),
-                .query => {},
+
+    // axiom-02w: per-statement parsing captures spans and '% id:' labels
+    while (parser.peek().tag != .eof) {
+        const start_idx = parser.pos;
+        if (parser.parseStatement()) |stmt| {
+            const span = types.statementSpan(source, tokens, start_idx, parser.pos - 1);
+            var desugarer = desugar_mod.Desugarer.init(alloc);
+            if (try desugarer.desugar(stmt)) |result| {
+                switch (result) {
+                    .clause => |clause| {
+                        var c = clause;
+                        c.source_text = span;
+                        c.label = types.labelBefore(source, span);
+                        try h.engine.addClause(c);
+                    },
+                    .query => {},
+                }
             }
+        } else |_| {
+            parser.recover();
         }
     }
 }
@@ -509,4 +521,24 @@ export fn axiom_compare_decisions(oldp: ?*ProgramHandle, newp: ?*ProgramHandle, 
     count_out.* = deltas.items.len;
     const slice = deltas.toOwnedSlice(alloc) catch return null;
     return slice.ptr;
+}
+
+// ─── Allowed alternatives (axiom-02w) ───────────────────────────────────────
+
+/// Actions from the KB's action/1 universe that decide() allows for this
+/// subject[/resource]. Returns an array of strings owned by the program's
+/// arena (valid until axiom_free); count written to out_count.
+export fn axiom_allowed_actions(handle: ?*ProgramHandle, subject: ?[*:0]const u8, resource: ?[*:0]const u8, out_count: ?*usize) ?[*]const [*:0]const u8 {
+    const h = handle orelse return null;
+    const subj = subject orelse return null;
+    const count_out = out_count orelse return null;
+    const alloc = h.arena.allocator();
+
+    const subj_s = alloc.dupe(u8, std.mem.span(subj)) catch return null;
+    const res_s: ?[]const u8 = if (resource) |r| alloc.dupe(u8, std.mem.span(r)) catch return null else null;
+
+    const actions = h.engine.allowedActions(subj_s, res_s) catch return null;
+    count_out.* = actions.len;
+    if (actions.len == 0) return null;
+    return dupeStringList(alloc, actions);
 }
