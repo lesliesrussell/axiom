@@ -60,6 +60,13 @@ pub const Parser = struct {
         // Mode declaration
         if (first.tag == .kw_mode) return self.parseModeDecl();
 
+        // axiom-d4s: "Predicate banned is closed_world."
+        // "Predicate" lexes as a variable token; commit to this parse only
+        // when the full shape matches, otherwise fall through.
+        if (first.tag == .variable and std.mem.eql(u8, first.lexeme, "Predicate")) {
+            if (self.tryClosedWorldDecl()) |stmt| return stmt;
+        }
+
         // Queries
         if (first.tag == .kw_is) return self.parseYesNoQuery();
         if (first.tag == .kw_who) return self.parseWhoQuery();
@@ -119,6 +126,34 @@ pub const Parser = struct {
         self.pos += 1;
         try self.expectDot();
         return .{ .command = .{ .include = filename } };
+    }
+
+    // axiom-d4s
+    fn tryClosedWorldDecl(self: *Parser) ?Statement {
+        const saved = self.pos;
+        self.pos += 1; // "Predicate"
+        if (!isIdentLike(self.peek().tag)) {
+            self.pos = saved;
+            return null;
+        }
+        const name = self.peek().lexeme;
+        self.pos += 1;
+        if (self.peek().tag != .kw_is) {
+            self.pos = saved;
+            return null;
+        }
+        self.pos += 1;
+        if (!isIdentLike(self.peek().tag) or !std.mem.eql(u8, self.peek().lexeme, "closed_world")) {
+            self.pos = saved;
+            return null;
+        }
+        self.pos += 1;
+        if (self.peek().tag != .dot) {
+            self.pos = saved;
+            return null;
+        }
+        self.pos += 1;
+        return .{ .closed_world_decl = name };
     }
 
     fn parseModeDecl(self: *Parser) ParseError!Statement {

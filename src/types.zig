@@ -242,6 +242,7 @@ pub const Statement = union(enum) {
     },
     command: Command,
     mode_decl: ModeDecl,
+    closed_world_decl: []const u8, // axiom-d4s: predicate name
 };
 
 pub const QueryKind = enum {

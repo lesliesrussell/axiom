@@ -1,16 +1,16 @@
 % ╔═══════════════════════════════════════════════════════════════════════╗
-% ║                                                                     ║
-% ║          LEARN AXIOM v0.2 — An Interactive Tutorial                 ║
-% ║                                                                     ║
-% ║   Axiom is a logic language where you write in English              ║
-% ║   and the computer reasons about what you said.                     ║
-% ║                                                                     ║
-% ║   25 lessons covering facts, rules, queries, negation,             ║
-% ║   recursion, math, lists, tracing, includes, and more.             ║
-% ║                                                                     ║
-% ║   Load this file:   :load examples/tutorial.axm                    ║
-% ║   Then follow along by typing the queries shown in each lesson.     ║
-% ║                                                                     ║
+% ║                                                                       ║
+% ║          LEARN AXIOM v0.2 — An Interactive Tutorial                   ║
+% ║                                                                       ║
+% ║   Axiom is a logic language where you write in English                ║
+% ║   and the computer reasons about what you said.                       ║
+% ║                                                                       ║
+% ║   25 lessons covering facts, rules, queries, negation,                ║
+% ║   recursion, math, lists, tracing, includes, and more.                ║
+% ║                                                                       ║
+% ║   Load this file:   :load examples/tutorial.axm                       ║
+% ║   Then follow along by typing the queries shown in each lesson.       ║
+% ║                                                                       ║
 % ╚═══════════════════════════════════════════════════════════════════════╝
 %
 % ═════════════════════════════════════════════════════════════════════════

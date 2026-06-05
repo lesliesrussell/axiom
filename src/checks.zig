@@ -4,6 +4,8 @@
 // (pred_info field); these functions operate on it.
 const std = @import("std");
 const types = @import("types.zig");
+const Term = types.Term;
+const Goal = types.Goal;
 const Clause = types.Clause;
 const PredicateInfo = types.PredicateInfo;
 const ModeDecl = types.ModeDecl;
@@ -148,4 +150,76 @@ fn concatPredKey(allocator: std.mem.Allocator, name: []const u8, arity: u8) ![]c
     buf[name.len] = '/';
     @memcpy(buf[name.len + 1 ..][0..num_str.len], num_str);
     return buf;
+}
+
+// axiom-d4s
+// Unsafe-negation lint: a negated goal is safe when every variable in it
+// also appears in an earlier positive body goal. Head occurrences do not
+// count — callers may leave head variables unbound (e.g. "Who" queries),
+// which makes \+ flounder.
+pub fn lintNegation(allocator: std.mem.Allocator, clauses: []const Clause) void {
+    for (clauses) |clause| {
+        var bound = std.StringHashMap(void).init(allocator);
+        defer bound.deinit();
+
+        for (clause.body) |goal| {
+            switch (goal) {
+                .call => |c| collectVars(.{ .compound = c }, &bound),
+                .not => |inner| switch (inner.*) {
+                    .call => |c| reportUnbound(c, &bound, clause),
+                    else => {},
+                },
+                .cut => {},
+            }
+        }
+    }
+}
+
+fn collectVars(term: Term, bound: *std.StringHashMap(void)) void {
+    switch (term) {
+        .variable => |name| bound.put(name, {}) catch {},
+        .compound => |c| for (c.args) |arg| collectVars(arg, bound),
+        .list => |l| {
+            collectVars(l.head.*, bound);
+            collectVars(l.tail.*, bound);
+        },
+        else => {},
+    }
+}
+
+fn reportUnbound(c: Term.Compound, bound: *const std.StringHashMap(void), clause: Clause) void {
+    for (c.args) |arg| {
+        if (firstUnboundVar(arg, bound)) |name| {
+            writeRaw("Warning: negation on unbound variable ");
+            writeRaw(name);
+            writeRaw(" in:\n  ");
+            if (clause.source_text.len > 0) {
+                writeRaw(clause.source_text);
+            } else {
+                writeRaw(clause.head.functor);
+                writeRaw("(...) rule");
+            }
+            writeRaw("\nSuggestion: bind ");
+            writeRaw(name);
+            writeRaw(" with a positive condition earlier in the rule body.\n");
+            return; // one warning per negated goal
+        }
+    }
+}
+
+fn firstUnboundVar(term: Term, bound: *const std.StringHashMap(void)) ?[]const u8 {
+    switch (term) {
+        .variable => |name| return if (bound.contains(name)) null else name,
+        .compound => |c| {
+            for (c.args) |arg| {
+                if (firstUnboundVar(arg, bound)) |n| return n;
+            }
+            return null;
+        },
+        .list => |l| {
+            if (firstUnboundVar(l.head.*, bound)) |n| return n;
+            return firstUnboundVar(l.tail.*, bound);
+        },
+        else => return null,
+    }
 }

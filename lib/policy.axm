@@ -1,0 +1,23 @@
+% ═════════════════════════════════════════════════════════════════════════
+%  policy.axm — three-valued status pattern for policy knowledge bases
+%
+%  Gives explicit "unknown" on top of negation-as-failure:
+%      status(X, allowed) | status(X, denied) | status(X, unknown)
+%
+%  The consuming KB defines:
+%      subject/1  — the domain of things decisions are made about
+%      allowed/1  — derived or asserted positive permission
+%      denied/1   — derived or asserted explicit denial
+%
+%  Note the "X is a subject" guard on every rule: negating over an
+%  unbound variable flounders (run :check to see the lint). Bind against
+%  a domain predicate first, then negate — that is the safe idiom.
+%
+%  Recommended companion declarations in the consuming KB:
+%      Predicate allowed is closed_world.
+%      Predicate denied is closed_world.
+% ═════════════════════════════════════════════════════════════════════════
+
+X has status allowed if X is a subject and X is allowed.
+X has status denied if X is a subject and X is denied.
+X has status unknown if X is a subject and X is not allowed and X is not denied.

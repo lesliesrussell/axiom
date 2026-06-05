@@ -40,6 +40,7 @@ pub const Engine = struct {
     var_counter: usize,
     trace_enabled: bool,
     pred_info: checks.PredInfoMap,
+    closed_world_preds: std.StringHashMap(void), // axiom-d4s
 
     pub fn init(allocator: std.mem.Allocator) Engine {
         return .{
@@ -48,6 +49,7 @@ pub const Engine = struct {
             .var_counter = 0,
             .trace_enabled = false,
             .pred_info = checks.PredInfoMap.init(allocator),
+            .closed_world_preds = std.StringHashMap(void).init(allocator),
         };
     }
 
@@ -74,6 +76,7 @@ pub const Engine = struct {
     pub fn clearClauses(self: *Engine) void {
         self.clauses.clearRetainingCapacity();
         self.pred_info.clearRetainingCapacity();
+        self.closed_world_preds.clearRetainingCapacity(); // axiom-d4s
     }
 
     pub fn registerMode(self: *Engine, decl: ModeDecl) !void {
@@ -87,6 +90,17 @@ pub const Engine = struct {
     /// Run determinism and mode checks on all loaded predicates
     pub fn runChecks(self: *Engine) !void {
         try checks.runChecks(&self.pred_info, self.clauses.items);
+        checks.lintNegation(self.allocator, self.clauses.items); // axiom-d4s
+    }
+
+    // axiom-d4s
+    pub fn declareClosedWorld(self: *Engine, name: []const u8) !void {
+        const owned = try self.allocator.dupe(u8, name);
+        try self.closed_world_preds.put(owned, {});
+    }
+
+    pub fn isClosedWorld(self: *const Engine, name: []const u8) bool {
+        return self.closed_world_preds.contains(name);
     }
 
     pub fn getClauses(self: *const Engine) []const Clause {

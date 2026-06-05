@@ -155,6 +155,13 @@ const Axiom = struct {
                 };
                 output("  Mode: {s}/{d}\n", .{ decl.pred_name, decl.arg_modes.len });
             },
+            // axiom-d4s
+            .closed_world_decl => |name| {
+                self.engine.declareClosedWorld(name) catch |err| {
+                    output("Error declaring closed_world: {}\n", .{err});
+                };
+                if (self.verbose_asserts) output("  Closed-world: {s}\n", .{name});
+            },
             else => {
                 var desugarer = Desugarer.init(self.allocator);
                 if (try desugarer.desugar(stmt)) |result| {
@@ -178,6 +185,18 @@ const Axiom = struct {
         }
     }
 
+    // axiom-d4s
+    fn allGoalsClosedWorld(self: *const Axiom, goals: []const Goal) bool {
+        if (goals.len == 0) return false;
+        for (goals) |g| {
+            switch (g) {
+                .call => |c| if (!self.engine.isClosedWorld(c.functor)) return false,
+                else => return false, // mixed negation: keep the plain answer
+            }
+        }
+        return true;
+    }
+
     fn runQuery(self: *Axiom, goals: []const Goal, variables: []const []const u8) !void {
         self.last_query_goals = goals;
         const solutions = try self.engine.solveAll(goals);
@@ -185,7 +204,12 @@ const Axiom = struct {
         self.last_solutions = solutions; // axiom-9nz
 
         if (solutions.len == 0) {
-            errStr("No.\n"); // axiom-wk4
+            // axiom-d4s: annotate when every positive goal is closed-world
+            if (self.allGoalsClosedWorld(goals)) {
+                errStr("No (by closed-world assumption; no proof found).\n");
+            } else {
+                errStr("No.\n"); // axiom-wk4
+            }
             return;
         }
 
@@ -481,6 +505,10 @@ const Axiom = struct {
             } else {
                 writeStr("  modes: not declared\n");
             }
+            // axiom-d4s
+            if (self.engine.isClosedWorld(name)) {
+                writeStr("  closed-world: yes\n");
+            }
 
             // Count clauses
             var count: usize = 0;
@@ -491,7 +519,14 @@ const Axiom = struct {
             }
             output("  clauses: {d}\n", .{count});
         } else {
-            output("No info for {s}/{d}. Predicate not found.\n", .{ name, arity });
+            // axiom-d4s: a closed-world declaration alone is still info
+            if (self.engine.isClosedWorld(name)) {
+                output("{s}/{d}\n", .{ name, arity });
+                writeStr("  closed-world: yes\n");
+                writeStr("  clauses: 0\n");
+            } else {
+                output("No info for {s}/{d}. Predicate not found.\n", .{ name, arity });
+            }
         }
     }
 

@@ -64,6 +64,7 @@ pub const Desugarer = struct {
             },
             .command => return null,
             .mode_decl => return null, // handled directly by main
+            .closed_world_decl => return null, // axiom-d4s: handled by host
         }
     }
 
