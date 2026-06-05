@@ -66,6 +66,65 @@ const statementSpan = types.statementSpan;
 const labelBefore = types.labelBefore;
 
 
+// axiom-8zj
+// Curated hints for common unsupported-English phrasings. Word-boundary,
+// case-insensitive matching so atoms like "warehouse" never trigger.
+fn phrasingHint(input: []const u8) ?[]const u8 {
+    if (containsWord(input, "isn't") or containsWord(input, "aren't") or
+        containsWord(input, "don't") or containsWord(input, "doesn't") or
+        containsWord(input, "can't") or containsWord(input, "cannot") or
+        containsWord(input, "won't"))
+    {
+        return "contractions are not supported - write \"is not\" / \"can\" forms.";
+    }
+    if (startsWithWord(input, "if") or containsWord(input, "then")) {
+        return "head-first conditionals are not supported - use the tail form: \"X is mortal if X is a man.\"";
+    }
+    if (containsWord(input, "are")) {
+        return "plurals are not supported - write one sentence per subject: \"X is a Y.\"";
+    }
+    if (containsWord(input, "or")) {
+        return "disjunction is not supported - write one rule per alternative.";
+    }
+    if (containsWord(input, "and")) {
+        // 'and' is valid in rule bodies; only hint when there is no 'if'
+        if (!containsWord(input, "if")) {
+            return "compound subjects are not supported - split into one sentence per subject.";
+        }
+    }
+    return null;
+}
+
+fn sourceLineAt(source: []const u8, line_no: usize) []const u8 {
+    var it = std.mem.splitScalar(u8, source, '\n');
+    var n: usize = 1;
+    while (it.next()) |line| : (n += 1) {
+        if (n == line_no) return line;
+    }
+    return "";
+}
+
+fn containsWord(haystack: []const u8, word: []const u8) bool {
+    var i: usize = 0;
+    while (i + word.len <= haystack.len) : (i += 1) {
+        if (!std.ascii.eqlIgnoreCase(haystack[i .. i + word.len], word)) continue;
+        const before_ok = i == 0 or !std.ascii.isAlphanumeric(haystack[i - 1]);
+        const after = i + word.len;
+        const after_ok = after >= haystack.len or
+            (!std.ascii.isAlphanumeric(haystack[after]) and haystack[after] != '_');
+        const before_ok2 = before_ok and (i == 0 or haystack[i - 1] != '_');
+        if (before_ok2 and after_ok) return true;
+    }
+    return false;
+}
+
+fn startsWithWord(haystack: []const u8, word: []const u8) bool {
+    const trimmed = std.mem.trimStart(u8, haystack, &std.ascii.whitespace);
+    if (trimmed.len < word.len) return false;
+    if (!std.ascii.eqlIgnoreCase(trimmed[0..word.len], word)) return false;
+    return trimmed.len == word.len or !std.ascii.isAlphanumeric(trimmed[word.len]);
+}
+
 // axiom-aof
 fn printReasonsIndented(tag: []const u8, reasons: []const []const u8) void {
     if (reasons.len == 0) return;
@@ -125,6 +184,11 @@ const Axiom = struct {
                 skipped += 1;
                 const fname = context orelse "<input>";
                 errOut("{s}:{d}:{d}: skipped statement near \"{s}\"\n", .{ fname, parser.last_error_line, parser.last_error_col, parser.last_error_token });
+                if (phrasingHint(sourceLineAt(source, parser.last_error_line))) |hint| { // axiom-8zj
+                    writeStr("  Hint: ");
+                    writeStr(hint);
+                    writeStr("\n");
+                }
                 parser.recover();
             }
         }
@@ -1056,6 +1120,11 @@ const Axiom = struct {
                     writeStr(":\n");
                     eout.style(.reset);
                     printCaretLine(input, line, col); // axiom-wk4
+                    if (phrasingHint(input)) |hint| { // axiom-8zj
+                        writeStr("  Hint: ");
+                        writeStr(hint);
+                        writeStr("\n");
+                    }
                 } else {
                     errOut("Parse error in: \"{s}\"\n", .{input});
                 }
