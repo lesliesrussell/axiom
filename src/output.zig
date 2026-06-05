@@ -9,6 +9,24 @@ const Substitution = @import("substitution.zig").Substitution;
 // axiom-6th
 const stdout_file = std.Io.File.stdout();
 
+// axiom-wk4
+pub const Style = enum { err, ok, dim, accent, reset };
+
+/// Set once at REPL startup: stdout is a TTY and NO_COLOR is unset.
+/// Piped output stays byte-identical to uncolored output.
+pub var color_enabled: bool = false;
+
+pub fn style(s: Style) void {
+    if (!color_enabled) return;
+    writeRaw(switch (s) {
+        .err => "\x1b[31m",
+        .ok => "\x1b[32m",
+        .dim => "\x1b[2m",
+        .accent => "\x1b[36m",
+        .reset => "\x1b[0m",
+    });
+}
+
 pub fn writeRaw(s: []const u8) void {
     stdout_file.writeStreamingAll(types.defaultIo(), s) catch {}; // axiom-6th
 }

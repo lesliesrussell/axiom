@@ -43,14 +43,17 @@ pub fn printTree(node: *const ProofNode, subst: *const Substitution, allocator: 
     }
     writeRaw(")");
 
+    output.style(.dim); // axiom-wk4
     switch (node.kind) {
-        .fact => writeRaw("  [fact]\n"),
-        .rule => writeRaw("  [rule]\n"),
-        .builtin => writeRaw("  [built-in]\n"),
-        .negation => writeRaw("  [negation]\n"),
-        .truncated => writeRaw("  [...]\n"),
-        .unproven => writeRaw("  [unproven?]\n"),
+        .fact => writeRaw("  [fact]"),
+        .rule => writeRaw("  [rule]"),
+        .builtin => writeRaw("  [built-in]"),
+        .negation => writeRaw("  [negation]"),
+        .truncated => writeRaw("  [...]"),
+        .unproven => writeRaw("  [unproven?]"),
     }
+    output.style(.reset);
+    writeRaw("\n");
 
     for (node.children) |*child| {
         printTree(child, subst, allocator, indent + 1);
