@@ -418,6 +418,13 @@ pub const Parser = struct {
             if (!isIdentLike(self.peek().tag)) return self.fail(ParseError.UnexpectedToken);
             const noun = self.peek().lexeme;
             self.pos += 1;
+            // axiom-g00: "X is not a Y of Z" -> \+ Y(X, Z), mirroring the
+            // positive of-pattern in parseVerbPhraseAfterIs
+            if (self.peek().tag == .kw_of) {
+                self.pos += 1;
+                const of_np = try self.parseNounPhrase();
+                return .{ .is_not = .{ .predicate_with_arg = .{ .pred = noun, .arg = of_np } } };
+            }
             return .{ .is_not = .{ .type_check = noun } };
         }
         if (isIdentLike(self.peek().tag)) {
