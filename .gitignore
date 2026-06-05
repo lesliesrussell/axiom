@@ -6,3 +6,11 @@ zig-out/
 /build-*/
 /docgen_tmp/
 specs/
+.nardo/
+.omc/
+.Rhistory
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
