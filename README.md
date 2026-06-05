@@ -428,6 +428,8 @@ Live in [`examples/`](examples/):
 | File | What it demonstrates |
 |---|---|
 | `tutorial.axm` | 25-lesson interactive walkthrough — **start here** |
+| `starport.axm` (+`_v2`, `_inputs.txt`) | **Full feature tour**: recursion, builtins, closed-world, three-valued status, labeled decisions with deny-overrides, `Why not?`, `:diff`/`:whatif` |
+| `guardrail/` | LLM-agent guardrail demo: C host gates a plan via `axiom_decide` |
 | `family.axm`, `ancestor.axm` | Classic recursion (parent / ancestor) |
 | `kingdom.axm`, `space_academy.axm` | Larger world models |
 | `negation.axm` | Negation-as-failure patterns |

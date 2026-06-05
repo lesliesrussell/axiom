@@ -1,0 +1,170 @@
+% ╔═══════════════════════════════════════════════════════════════════════╗
+% ║  STARPORT MERIDIAN — docking control, policy edition                   ║
+% ║                                                                        ║
+% ║  A full tour of Axiom in one knowledge base: facts, rules,             ║
+% ║  recursion, integers, negation, closed-world declarations, the        ║
+% ║  three-valued status pattern, and labeled decision rules with         ║
+% ║  deny-overrides.                                                      ║
+% ║                                                                        ║
+% ║  Load it:        :load examples/starport.axm                          ║
+% ║  Then try the suggested session at the bottom of this file.           ║
+% ╚═══════════════════════════════════════════════════════════════════════╝
+
+% ─── The fleet ─────────────────────────────────────────────────────────────
+%
+% Plain facts. "X is a Y." becomes Y(X); "X has P V." becomes P(X, V);
+% "X is a Y of Z." becomes Y(X, Z).
+
+Nightingale is a freighter.
+Dawnchaser is a freighter.
+Starwisp is a yacht.
+Ironclad is a warship.
+
+Nightingale has mass 4200.
+Dawnchaser has mass 9800.
+Starwisp has mass 350.
+Ironclad has mass 22000.
+
+Vega is a captain of Nightingale.
+Mirelle is a captain of Dawnchaser.
+Orsk is a captain of Starwisp.
+Thane is a captain of Ironclad.
+
+Vega has license freight_class_a.
+Mirelle has license freight_class_a.
+Orsk has license pleasure_craft.
+
+% Thane has no license on file. Is that "unlicensed" or "unknown"?
+% See the closed-world section below.
+
+% ─── Cargo manifests (lists) ───────────────────────────────────────────────
+
+Nightingale has manifest [grain, medicine, parts].
+Dawnchaser has manifest [ore, fuel_cells].
+Starwisp has manifest [].
+
+% ─── Trade routes (recursion) ──────────────────────────────────────────────
+%
+% reachable/2 is the classic transitive closure — same shape as
+% ancestor/2 in the tutorial.
+
+Meridian is a link of Cygnus_gate.
+Cygnus_gate is a link of Tannhauser.
+Tannhauser is a link of Frontier_post.
+
+X is a reach of Y if X is a link of Y.
+X is a reach of Z if X is a link of Y and Y is a reach of Z.
+
+% ─── Derived ship classes (integers + builtins) ────────────────────────────
+%
+% "M is smaller_than 5000" wraps less_than(M, 5000).
+
+S is light if S has mass M and M is smaller_than 5000.
+S is heavy if S has mass M and M is bigger_than 8000.
+
+% ─── Safe negation ─────────────────────────────────────────────────────────
+%
+% The subject is always bound by a positive condition before the
+% negation — run :check and note there are no warnings. (Write a rule
+% like "X is shady if X is not licensed." and :check will object.)
+
+Ironclad is flagged.
+
+S is welcome if S is a freighter and S is not flagged.
+
+% ─── Closed-world declarations ─────────────────────────────────────────────
+%
+% flagged/1 and banned_pilot/1 are complete: absence of proof means
+% false, and yes/no answers say so explicitly. Try:
+%   Is Dawnchaser flagged?     → No (by closed-world assumption ...)
+
+Predicate flagged is closed_world.
+Predicate banned_pilot is closed_world.
+
+% ─── Three-valued clearance via the standard library ───────────────────────
+%
+% lib/policy.axm gives status allowed / denied / unknown over a
+% subject/1 domain. Try:  Who has status unknown?
+
+include "../lib/policy.axm".
+
+Vega is a subject.
+Mirelle is a subject.
+Orsk is a subject.
+Thane is a subject.
+
+X is allowed if X has license freight_class_a.
+X is denied if X is a captain of S and S is flagged.
+
+% ─── The action universe (for "Which actions can ... perform?") ────────────
+
+Dock is an action.
+Refuel is an action.
+Unload_cargo is an action.
+Cold_start_reactor is an action.
+
+% ─── Docking policy: labeled decision rules, deny-overrides ────────────────
+%
+% Should <captain> <action>?  asserts subject/action under a temporary
+% context and resolves outcome/2 with deny-overrides: one matching deny
+% beats any number of allows.
+
+% id: licensed_captains_dock
+D has outcome allow
+  if D has subject C and D has action dock
+  and C is a captain of S and C has license freight_class_a.
+
+% id: pleasure_craft_dock
+D has outcome allow
+  if D has subject C and D has action dock
+  and C is a captain of S and S is light and C has license pleasure_craft.
+
+% id: anyone_refuels
+D has outcome allow
+  if D has subject C and D has action refuel
+  and C is a captain of S.
+
+% id: docked_ships_unload
+D has outcome allow
+  if D has subject C and D has action unload_cargo
+  and C is a captain of S and S is welcome.
+
+% id: flagged_ships_grounded
+D has outcome deny
+  if D has subject C and C is a captain of S and S is flagged.
+
+% id: reactor_is_dockside_only
+D has outcome deny
+  if D has subject C and D has action cold_start_reactor.
+
+% ╔═══════════════════════════════════════════════════════════════════════╗
+% ║  SUGGESTED SESSION                                                     ║
+% ║                                                                        ║
+% ║  Plain queries and proofs:                                             ║
+% ║    Who is a freighter?                                                 ║
+% ║    Is Nightingale light?                                               ║
+% ║    :why                       ← real proof tree, builtin leaf          ║
+% ║    Is Meridian a reach of Frontier_post?                               ║
+% ║    :why                       ← recursion in the proof                 ║
+% ║    Is Dawnchaser flagged?     ← closed-world annotated No              ║
+% ║    Who has status unknown?    ← three-valued clearance (orsk)         ║
+% ║                                                                        ║
+% ║  Decisions:                                                            ║
+% ║    Should vega dock?          ← Allow, with rule label + evidence      ║
+% ║    Should thane dock?         ← Deny (flagged ship beats everything)   ║
+% ║    Why not?                   ← deny dependencies + near-miss allows   ║
+% ║    Should orsk unload_cargo?  ← Indeterminate (yacht isn't welcome)    ║
+% ║    Why not?                                                            ║
+% ║    Which actions can mirelle perform?                                  ║
+% ║                                                                        ║
+% ║  Introspection:                                                        ║
+% ║    :check                     ← det/mode checks + negation lint        ║
+% ║    :show english              ← canonical English                      ║
+% ║    :show ids                  ← stable clause ids + rule labels        ║
+% ║    :pred flagged/1            ← closed-world shown                     ║
+% ║                                                                        ║
+% ║  Version analysis (uses the v2 file next to this one):                 ║
+% ║    :diff examples/starport.axm examples/starport_v2.axm                ║
+% ║    :whatif examples/starport.axm examples/starport_v2.axm \            ║
+% ║            examples/starport_inputs.txt                                ║
+% ╚═══════════════════════════════════════════════════════════════════════╝

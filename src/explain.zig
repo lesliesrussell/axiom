@@ -98,7 +98,10 @@ fn proveGoal(eng: *Engine, compound: Term.Compound, witness: *Substitution, dept
 
         if (renamed.body.len == 0) {
             witness.* = attempt;
-            return ProofNode{ .goal = wc, .kind = .fact, .children = &.{}, .clause_id = clause.id, .clause_label = clause.label };
+            // store the goal resolved under the post-unification bindings —
+            // fact leaves otherwise leak renamed variables into evidence
+            const resolved = try walkCompound(eng, wc, witness);
+            return ProofNode{ .goal = resolved, .kind = .fact, .children = &.{}, .clause_id = clause.id, .clause_label = clause.label };
         }
 
         var kids: std.ArrayList(ProofNode) = .empty;
@@ -125,8 +128,9 @@ fn proveGoal(eng: *Engine, compound: Term.Compound, witness: *Substitution, dept
         }
 
         witness.* = attempt;
+        const resolved = try walkCompound(eng, wc, witness);
         return ProofNode{
-            .goal = wc,
+            .goal = resolved,
             .kind = .rule,
             .children = try kids.toOwnedSlice(eng.allocator),
             .clause_id = clause.id, // axiom-i01

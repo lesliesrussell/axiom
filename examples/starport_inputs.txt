@@ -1,0 +1,5 @@
+% decision inputs for :whatif — subject action [resource]
+vega dock
+orsk dock
+thane refuel
+mirelle unload_cargo
