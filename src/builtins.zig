@@ -214,7 +214,7 @@ pub fn tryBuiltinCheck(eng: *Engine, compound: Term.Compound, subst: Substitutio
     return false;
 }
 
-fn appendLists(allocator: std.mem.Allocator, a: Term, b: Term) !Term {
+pub fn appendLists(allocator: std.mem.Allocator, a: Term, b: Term) !Term {
     switch (a) {
         .nil => return b,
         .list => |l| {

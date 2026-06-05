@@ -1,10 +1,10 @@
-// axiom-s0w
-// Proof tree representation and explanation printing. Split out of
-// engine.zig; part of the engine module.
+// axiom-s0w / axiom-9nz
+// Proof tree representation and printing. Trees are built by the witness
+// re-prover in explain.zig; this file only defines the node shape and the
+// recursive printer. Part of the engine module.
 const std = @import("std");
 const types = @import("types.zig");
 const Term = types.Term;
-const Clause = types.Clause;
 const Substitution = @import("substitution.zig").Substitution;
 const output = @import("output.zig");
 const writeRaw = output.writeRaw;
@@ -12,31 +12,28 @@ const writeTermTo = output.writeTermTo;
 
 pub const ProofNode = struct {
     goal: Term.Compound,
-    clause_used: ?Clause, // null for built-ins / facts
-    is_fact: bool,
-    is_builtin: bool,
+    kind: Kind,
     children: []const ProofNode,
+
+    pub const Kind = enum {
+        fact, // matched a body-less clause
+        rule, // matched a clause; children are the body's sub-proofs
+        builtin, // satisfied by a built-in predicate
+        negation, // goal shown was confirmed unprovable (\+)
+        truncated, // proof exceeded the depth cap
+        unproven, // no proof found (e.g. KB changed since the query)
+    };
 };
 
-pub fn explainProof(proof: ?ProofNode, subst: *const Substitution, allocator: std.mem.Allocator) void {
-    const p = proof orelse {
-        writeRaw("No proof available. Run a query first.\n");
-        return;
-    };
-    writeRaw("\nBecause:\n");
-    printProofNode(&p, subst, allocator, 1);
-}
-
-fn printProofNode(node: *const ProofNode, subst: *const Substitution, allocator: std.mem.Allocator, indent: usize) void {
-    // Print indent
+pub fn printTree(node: *const ProofNode, subst: *const Substitution, allocator: std.mem.Allocator, indent: usize) void {
     var spaces: [64]u8 = undefined;
     const n = @min(indent * 2, 64);
     @memset(spaces[0..n], ' ');
     writeRaw(spaces[0..n]);
 
     writeRaw("- ");
+    if (node.kind == .negation) writeRaw("\\+ ");
 
-    // Print the resolved goal
     writeRaw(node.goal.functor);
     writeRaw("(");
     for (node.goal.args, 0..) |arg, i| {
@@ -46,42 +43,16 @@ fn printProofNode(node: *const ProofNode, subst: *const Substitution, allocator:
     }
     writeRaw(")");
 
-    if (node.is_builtin) {
-        writeRaw("  [built-in]\n");
-    } else if (node.is_fact) {
-        writeRaw("  [fact]\n");
-    } else {
-        writeRaw("  [rule]\n");
-        // Show clause body as sub-proof
-        if (node.clause_used) |clause| {
-            for (clause.body) |body_goal| {
-                switch (body_goal) {
-                    .call => |c| {
-                        const child = ProofNode{
-                            .goal = c,
-                            .clause_used = null,
-                            .is_fact = true,
-                            .is_builtin = false,
-                            .children = &.{},
-                        };
-                        printProofNode(&child, subst, allocator, indent + 1);
-                    },
-                    .not => |inner| {
-                        switch (inner.*) {
-                            .call => |c| {
-                                writeRaw(spaces[0..n]);
-                                writeRaw("    \\+ ");
-                                var nbuf: [256]u8 = undefined;
-                                const nt = std.fmt.bufPrint(&nbuf, "{s}(...)", .{c.functor}) catch "?";
-                                writeRaw(nt);
-                                writeRaw("  [negation succeeded]\n");
-                            },
-                            else => {},
-                        }
-                    },
-                    .cut => {},
-                }
-            }
-        }
+    switch (node.kind) {
+        .fact => writeRaw("  [fact]\n"),
+        .rule => writeRaw("  [rule]\n"),
+        .builtin => writeRaw("  [built-in]\n"),
+        .negation => writeRaw("  [negation]\n"),
+        .truncated => writeRaw("  [...]\n"),
+        .unproven => writeRaw("  [unproven?]\n"),
+    }
+
+    for (node.children) |*child| {
+        printTree(child, subst, allocator, indent + 1);
     }
 }

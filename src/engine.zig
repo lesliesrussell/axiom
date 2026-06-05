@@ -16,6 +16,7 @@ const Clause = types.Clause;
 const substitution = @import("substitution.zig");
 const builtins = @import("builtins.zig");
 const proof = @import("proof.zig");
+const explain = @import("explain.zig"); // axiom-9nz
 const checks = @import("checks.zig");
 const output = @import("output.zig");
 const traceCompound = output.traceCompound;
@@ -38,7 +39,6 @@ pub const Engine = struct {
     allocator: std.mem.Allocator,
     var_counter: usize,
     trace_enabled: bool,
-    last_proof: ?ProofNode,
     pred_info: checks.PredInfoMap,
 
     pub fn init(allocator: std.mem.Allocator) Engine {
@@ -47,7 +47,6 @@ pub const Engine = struct {
             .allocator = allocator,
             .var_counter = 0,
             .trace_enabled = false,
-            .last_proof = null,
             .pred_info = checks.PredInfoMap.init(allocator),
         };
     }
@@ -98,7 +97,6 @@ pub const Engine = struct {
     pub fn solveAll(self: *Engine, goals: []const Goal) ![]Substitution {
         var solutions: std.ArrayList(Substitution) = .empty;
         const initial = Substitution.init(self.allocator);
-        self.last_proof = null;
         try self.solveGoalsAll(goals, initial, &solutions, 0);
         return solutions.toOwnedSlice(self.allocator);
     }
@@ -155,17 +153,6 @@ pub const Engine = struct {
                         any_match = true;
                         if (self.trace_enabled) {
                             traceCompound(depth, "EXIT", compound, &new_subst, self.allocator);
-                        }
-
-                        // Record proof for last solution
-                        if (self.last_proof == null) {
-                            self.last_proof = .{
-                                .goal = compound,
-                                .clause_used = clause,
-                                .is_fact = clause.body.len == 0,
-                                .is_builtin = false,
-                                .children = &.{},
-                            };
                         }
 
                         if (renamed.body.len == 0) {
@@ -269,19 +256,19 @@ pub const Engine = struct {
 
     // ─── Proof explanation ─────────────────────────────────────────────
 
-    pub fn getLastProof(self: *const Engine) ?ProofNode {
-        return self.last_proof;
-    }
-
-    pub fn explainLastProof(self: *const Engine, subst: *const Substitution) void {
-        proof.explainProof(self.last_proof, subst, self.allocator);
+    // axiom-9nz
+    /// Re-prove the query's goals under a solution and print the proof
+    /// tree. See explain.zig for the witness re-prover.
+    pub fn explainSolution(self: *Engine, goals: []const Goal, subst: *const Substitution) void {
+        explain.explainSolution(self, goals, subst);
     }
 
     // ─── Variable Renaming ─────────────────────────────────────────────
 
     const RenameError = std.mem.Allocator.Error;
 
-    fn renameClause(self: *Engine, clause: Clause) RenameError!Clause {
+    /// Internal — pub for explain.zig (witness re-prover).
+    pub fn renameClause(self: *Engine, clause: Clause) RenameError!Clause {
         self.var_counter += 1;
         const suffix = self.var_counter;
 

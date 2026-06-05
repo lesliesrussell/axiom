@@ -58,7 +58,7 @@ const Axiom = struct {
     engine: Engine,
     allocator: std.mem.Allocator,
     include_stack: std.ArrayList([]const u8), // for cyclic include detection
-    last_solution: ?Substitution, // for :why
+    last_solutions: []Substitution, // axiom-9nz: for :why [n]
     last_query_goals: ?[]const Goal,
     loaded_files: std.ArrayList([]const u8), // axiom-76a: for :reload
 
@@ -67,7 +67,7 @@ const Axiom = struct {
             .engine = Engine.init(allocator),
             .allocator = allocator,
             .include_stack = .empty,
-            .last_solution = null,
+            .last_solutions = &.{},
             .last_query_goals = null,
             .loaded_files = .empty,
         };
@@ -140,15 +140,15 @@ const Axiom = struct {
         self.last_query_goals = goals;
         const solutions = try self.engine.solveAll(goals);
 
+        self.last_solutions = solutions; // axiom-9nz
+
         if (solutions.len == 0) {
             writeStr("No.\n");
-            self.last_solution = null;
             return;
         }
 
         if (variables.len == 0) {
             writeStr("Yes.\n");
-            self.last_solution = solutions[0];
             return;
         }
 
@@ -160,12 +160,8 @@ const Axiom = struct {
 
         if (real_vars.items.len == 0) {
             writeStr("Yes.\n");
-            self.last_solution = solutions[0];
             return;
         }
-
-        // Store first solution for :why
-        self.last_solution = solutions[0];
 
         for (solutions) |solution| {
             var has_output = false;
@@ -311,6 +307,24 @@ const Axiom = struct {
                 .rules => writeStr("No rules loaded.\n"),
             }
         }
+    }
+
+    // axiom-9nz
+    fn explainWhy(self: *Axiom, arg: []const u8) void {
+        const goals = self.last_query_goals orelse {
+            writeStr("No successful query to explain. Run a query first.\n");
+            return;
+        };
+        if (self.last_solutions.len == 0) {
+            writeStr("No successful query to explain. Run a query first.\n");
+            return;
+        }
+        const n = if (arg.len == 0) 1 else std.fmt.parseInt(usize, arg, 10) catch 0;
+        if (n == 0 or n > self.last_solutions.len) {
+            output("Query had {d} solution(s) — :why 1..{d}.\n", .{ self.last_solutions.len, self.last_solutions.len });
+            return;
+        }
+        self.engine.explainSolution(goals, &self.last_solutions[n - 1]);
     }
 
     // axiom-76a
@@ -540,13 +554,10 @@ const Axiom = struct {
                     continue;
                 }
 
-                // Why command
-                if (std.mem.eql(u8, input, ":why")) {
-                    if (self.last_solution) |sol| {
-                        self.engine.explainLastProof(&sol);
-                    } else {
-                        writeStr("No successful query to explain. Run a query first.\n");
-                    }
+                // Why command — axiom-9nz: :why [n]
+                if (std.mem.eql(u8, input, ":why") or std.mem.startsWith(u8, input, ":why ")) {
+                    const arg = if (input.len > 4) std.mem.trim(u8, input[4..], &std.ascii.whitespace) else "";
+                    self.explainWhy(arg);
                     continue;
                 }
 
@@ -587,7 +598,7 @@ const Axiom = struct {
             \\  :reload          Clear, then re-load all loaded files
             \\  :trace on/off    Toggle execution tracing
             \\  :trace           Show current trace status
-            \\  :why             Explain the last successful query
+            \\  :why [n]         Explain solution n of the last query (default 1)
             \\  :pred name/arity Show predicate info (determinism, modes)
             \\  :check           Run determinism and mode checks
             \\  :help            Show this help
