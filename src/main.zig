@@ -55,7 +55,7 @@ fn okStr(s: []const u8) void {
 // axiom-82z: completion list for the line editor
 const REPL_COMMANDS = [_][]const u8{
     ":check", ":clear", ":help", ":load ", ":pred ", ":quit", ":reload",
-    ":retract ", ":save ", ":show", ":show facts", ":show rules",
+    ":retract ", ":save ", ":show", ":show facts", ":show ids", ":show rules",
     ":trace", ":trace on", ":trace off", ":why",
 };
 
@@ -81,6 +81,26 @@ fn statementSpan(source: []const u8, tokens: []const types.Token, start_idx: usi
     const e = @min(byteOffsetOf(source, et.line, et.col) + et.lexeme.len, source.len);
     if (e <= s) return "";
     return source[s..e];
+}
+
+// axiom-ekd
+// '% id: <label>' on the line immediately above a statement names it.
+fn labelBefore(source: []const u8, span: []const u8) []const u8 {
+    if (span.len == 0) return "";
+    const offset = @intFromPtr(span.ptr) - @intFromPtr(source.ptr);
+    if (offset == 0 or offset > source.len) return "";
+    // walk back over whitespace to the end of the previous line
+    var i = offset;
+    while (i > 0 and (source[i - 1] == ' ' or source[i - 1] == '\t' or source[i - 1] == '\n' or source[i - 1] == '\r')) i -= 1;
+    if (i == 0) return "";
+    // find the start of that line
+    const line_end = i;
+    var line_start = i;
+    while (line_start > 0 and source[line_start - 1] != '\n') line_start -= 1;
+    const line = std.mem.trim(u8, source[line_start..line_end], &std.ascii.whitespace);
+    const prefix = "% id:";
+    if (!std.mem.startsWith(u8, line, prefix)) return "";
+    return std.mem.trim(u8, line[prefix.len..], &std.ascii.whitespace);
 }
 
 const Axiom = struct {
@@ -122,7 +142,8 @@ const Axiom = struct {
             const start_idx = parser.pos;
             if (parser.parseStatement()) |stmt| {
                 const span = statementSpan(source, tokens, start_idx, parser.pos - 1);
-                try self.processStatementWithDir(stmt, base_dir, span);
+                const label = labelBefore(source, span); // axiom-ekd
+                try self.processStatementWithDir(stmt, base_dir, span, label);
             } else |_| {
                 // axiom-wk4: report instead of silently dropping
                 skipped += 1;
@@ -137,10 +158,10 @@ const Axiom = struct {
     const ProcessError = std.mem.Allocator.Error || parser_mod.ParseError || desugar_mod.DesugarError;
 
     fn processStatement(self: *Axiom, stmt: Statement) ProcessError!void {
-        return self.processStatementWithDir(stmt, null, "");
+        return self.processStatementWithDir(stmt, null, "", "");
     }
 
-    fn processStatementWithDir(self: *Axiom, stmt: Statement, base_dir: ?[]const u8, source_text: []const u8) ProcessError!void {
+    fn processStatementWithDir(self: *Axiom, stmt: Statement, base_dir: ?[]const u8, source_text: []const u8, label: []const u8) ProcessError!void {
         switch (stmt) {
             .command => |cmd| {
                 switch (cmd) {
@@ -170,6 +191,7 @@ const Axiom = struct {
                             // axiom-76a
                             var c = clause;
                             c.source_text = source_text;
+                            c.label = label; // axiom-ekd
                             try self.engine.addClause(c);
                             if (self.verbose_asserts) { // axiom-wk4
                                 const det_str = if (clause.det.marker()) |m| &[_]u8{m} else "";
@@ -386,6 +408,28 @@ const Axiom = struct {
                 .facts => writeStr("No facts loaded.\n"),
                 .rules => writeStr("No rules loaded.\n"),
             }
+        }
+    }
+
+    // axiom-ekd
+    fn showClauseIds(self: *Axiom) void {
+        const clauses = self.engine.getClauses();
+        if (clauses.len == 0) {
+            writeStr("No clauses loaded.\n");
+            return;
+        }
+        for (clauses, 0..) |clause, i| {
+            var hex_buf: [16]u8 = undefined;
+            const hex = engine_mod.identity.hashHex(clause.id, &hex_buf);
+            writeStr(hex);
+            if (clause.label.len > 0) {
+                writeStr(" (");
+                writeStr(clause.label);
+                writeStr(")");
+            }
+            output("  {d}: ", .{i + 1});
+            printClause(clause);
+            writeStr(".\n");
         }
     }
 
@@ -639,8 +683,10 @@ const Axiom = struct {
                         self.showClauses(.facts);
                     } else if (std.mem.eql(u8, arg, "rules")) {
                         self.showClauses(.rules);
+                    } else if (std.mem.eql(u8, arg, "ids")) {
+                        self.showClauseIds(); // axiom-ekd
                     } else {
-                        errStr("Usage: :show [facts|rules]\n");
+                        errStr("Usage: :show [facts|rules|ids]\n");
                     }
                     return true;
                 }
@@ -725,6 +771,7 @@ const Axiom = struct {
             \\  :show            List all loaded clauses
             \\  :show facts      List only facts
             \\  :show rules      List only rules
+            \\  :show ids        List clauses with stable ids and labels
             \\  :retract <n>     Remove clause n (numbers shift; see :show)
             \\  :clear           Remove all clauses and declarations
             \\  :save <file>     Save clause sentences to a file
@@ -763,7 +810,7 @@ const Axiom = struct {
             const start_idx = parser.pos; // axiom-76a
             if (parser.parseStatement()) |stmt| {
                 const span = statementSpan(input, tokens, start_idx, parser.pos - 1);
-                self.processStatementWithDir(stmt, null, span) catch |err| {
+                self.processStatementWithDir(stmt, null, span, "") catch |err| {
                     self.printParseErrorWithPos(input, err, 0, 0, "");
                 };
             } else |_| {

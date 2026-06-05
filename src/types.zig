@@ -173,6 +173,8 @@ pub const Clause = struct {
     body: []const Goal,
     det: Determinism = .unspecified,
     source_text: []const u8 = "", // axiom-76a: original sentence for :save
+    id: u64 = 0, // axiom-ekd: alpha-normalized hash, set by addClause
+    label: []const u8 = "", // axiom-ekd: optional '% id: name' annotation
 };
 
 // ─── English Surface AST ───────────────────────────────────────────────────

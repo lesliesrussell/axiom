@@ -17,6 +17,7 @@ const substitution = @import("substitution.zig");
 const builtins = @import("builtins.zig");
 const proof = @import("proof.zig");
 const explain = @import("explain.zig"); // axiom-9nz
+pub const identity = @import("identity.zig"); // axiom-ekd: pub for REPL display
 const checks = @import("checks.zig");
 pub const output = @import("output.zig"); // axiom-wk4: pub for REPL styling
 const traceCompound = output.traceCompound;
@@ -59,6 +60,10 @@ pub const Engine = struct {
         if (clause.source_text.len > 0) {
             stored.source_text = try self.allocator.dupe(u8, clause.source_text);
         }
+        if (clause.label.len > 0) {
+            stored.label = try self.allocator.dupe(u8, clause.label);
+        }
+        stored.id = identity.clauseHash(self.allocator, stored); // axiom-ekd
         try self.clauses.append(self.allocator, stored);
         try checks.recordClause(&self.pred_info, self.allocator, stored);
     }
