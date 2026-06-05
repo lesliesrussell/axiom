@@ -39,7 +39,6 @@ pub const TokenTag = enum {
     kw_can,
     kw_the,
     kw_that,
-    kw_mortal, // treat as atom but recognized
     kw_whose,
     kw_head,
     kw_tail,
