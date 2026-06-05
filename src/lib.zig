@@ -41,7 +41,7 @@ pub const Program = struct {
 
     /// Load and process an Axiom source file
     pub fn loadFile(self: *Program, path: []const u8) !void {
-        const source = try std.fs.cwd().readFileAlloc(self.allocator, path, 1024 * 1024);
+        const source = try std.Io.Dir.cwd().readFileAlloc(types.defaultIo(), path, self.allocator, .limited(1024 * 1024)); // axiom-6th
         try self.loadSource(source);
     }
 

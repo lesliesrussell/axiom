@@ -17,16 +17,17 @@ const Clause = types.Clause;
 const Determinism = types.Determinism;
 const PredicateInfo = types.PredicateInfo;
 
-const stdout_file = std.fs.File.stdout();
+// axiom-6th
+const stdout_file = std.Io.File.stdout();
 
 fn output(comptime fmt: []const u8, args: anytype) void {
     var buf: [8192]u8 = undefined;
     const text = std.fmt.bufPrint(&buf, fmt, args) catch return;
-    stdout_file.writeAll(text) catch {};
+    stdout_file.writeStreamingAll(types.defaultIo(), text) catch {}; // axiom-6th
 }
 
 fn writeStr(s: []const u8) void {
-    stdout_file.writeAll(s) catch {};
+    stdout_file.writeStreamingAll(types.defaultIo(), s) catch {}; // axiom-6th
 }
 
 const Axiom = struct {
@@ -183,7 +184,7 @@ const Axiom = struct {
         else
             filename;
 
-        const source = std.fs.cwd().readFileAlloc(self.allocator, resolved, 1024 * 1024) catch |err| {
+        const source = std.Io.Dir.cwd().readFileAlloc(types.defaultIo(), resolved, self.allocator, .limited(1024 * 1024)) catch |err| {
             output("Error loading '{s}': {}\n", .{ resolved, err });
             return;
         };
@@ -206,9 +207,9 @@ const Axiom = struct {
     }
 
     fn loadFile(self: *Axiom, filename: []const u8) !void {
-        const source = std.fs.cwd().readFileAlloc(self.allocator, filename, 1024 * 1024) catch blk: {
+        const source = std.Io.Dir.cwd().readFileAlloc(types.defaultIo(), filename, self.allocator, .limited(1024 * 1024)) catch blk: {
             const with_ext = try std.fmt.allocPrint(self.allocator, "{s}.axm", .{filename});
-            break :blk std.fs.cwd().readFileAlloc(self.allocator, with_ext, 1024 * 1024) catch |err| {
+            break :blk std.Io.Dir.cwd().readFileAlloc(types.defaultIo(), with_ext, self.allocator, .limited(1024 * 1024)) catch |err| {
                 output("Error loading '{s}': {}\n", .{ filename, err });
                 return;
             };
@@ -306,7 +307,7 @@ const Axiom = struct {
         writeStr("Axiom v0.3 — A Prolog-style logic language with controlled-English syntax\n");
         writeStr("Commands: :load, :show, :trace, :why, :pred, :check, :help, :quit\n\n");
 
-        const stdin_file = std.fs.File.stdin();
+        const stdin_file = std.Io.File.stdin(); // axiom-6th
         var line_buf: [4096]u8 = undefined;
         var remaining: []u8 = &.{};
         _ = &remaining;
@@ -314,12 +315,16 @@ const Axiom = struct {
         while (true) {
             writeStr("axiom> ");
 
-            const n = stdin_file.read(&line_buf) catch |err| {
-                output("Read error: {}\n", .{err});
-                continue;
+            // axiom-6th
+            const n = stdin_file.readStreaming(types.defaultIo(), &.{&line_buf}) catch |err| switch (err) {
+                error.EndOfStream => break,
+                else => {
+                    output("Read error: {}\n", .{err});
+                    continue;
+                },
             };
 
-            if (n == 0) break;
+            if (n == 0) continue;
 
             var data = line_buf[0..n];
             while (data.len > 0) {
@@ -544,22 +549,21 @@ fn isRenamedVar(original: []const u8, resolved: []const u8) bool {
     return resolved[original.len] == '_';
 }
 
-pub fn main() !void {
+pub fn main(init: std.process.Init) !void {
     var arena = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     defer arena.deinit();
     const allocator = arena.allocator();
 
     var axiom = Axiom.init(allocator);
 
-    const args = try std.process.argsAlloc(allocator);
-    defer std.process.argsFree(allocator, args);
-
-    if (args.len > 1) {
-        for (args[1..]) |arg| {
-            axiom.loadFile(arg) catch |err| {
-                output("Error: {}\n", .{err});
-            };
-        }
+    // axiom-6th
+    var args_it = std.process.Args.Iterator.init(init.minimal.args);
+    defer args_it.deinit();
+    _ = args_it.skip(); // argv[0]
+    while (args_it.next()) |arg| {
+        axiom.loadFile(arg) catch |err| {
+            output("Error: {}\n", .{err});
+        };
     }
 
     try axiom.repl();

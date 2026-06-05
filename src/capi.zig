@@ -84,7 +84,7 @@ export fn axiom_load_file(handle: ?*ProgramHandle, path_ptr: [*c]const u8) c_int
     const h = handle orelse return -1;
     const path = std.mem.span(path_ptr);
     const alloc = h.allocator();
-    const source = std.fs.cwd().readFileAlloc(alloc, path, 4 * 1024 * 1024) catch return -1;
+    const source = std.Io.Dir.cwd().readFileAlloc(types.defaultIo(), path, alloc, .limited(4 * 1024 * 1024)) catch return -1; // axiom-6th
     loadSourceInternal(h, source) catch return -1;
     return 0;
 }

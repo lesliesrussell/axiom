@@ -78,7 +78,7 @@ Use Axiom for:
 
 ## Quick Start
 
-Requires **Zig 0.15.2 or newer**.
+Requires **Zig 0.16.0 or newer**.
 
 ```sh
 git clone <this-repo> axiom
@@ -457,7 +457,7 @@ axiom/
 
 Axiom is at **v0.x** — the surface syntax, REPL command set, and FFI are stable enough to embed but may still evolve. The `build.zig.zon` package id is fixed; the version field tracks releases.
 
-Minimum Zig: **0.15.2**.
+Minimum Zig: **0.16.0**.
 
 ---
 

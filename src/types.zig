@@ -2,6 +2,16 @@ const std = @import("std");
 
 pub const Allocator = std.mem.Allocator;
 
+// axiom-6th
+// Shared default Io instance for blocking file/stdio operations (Zig 0.16
+// threads an explicit `std.Io` through fs and stdio APIs).
+var io_threaded: ?std.Io.Threaded = null;
+
+pub fn defaultIo() std.Io {
+    if (io_threaded == null) io_threaded = std.Io.Threaded.init(std.heap.page_allocator, .{});
+    return io_threaded.?.io();
+}
+
 // ─── Tokens ────────────────────────────────────────────────────────────────
 
 pub const TokenTag = enum {

@@ -133,10 +133,11 @@ pub fn unify(t1: Term, t2: Term, subst: *Substitution) !bool {
 
 // ─── Trace / output helpers (no std.fmt — safe across shared lib boundaries) ─
 
-const stdout_file = std.fs.File.stdout();
+// axiom-6th
+const stdout_file = std.Io.File.stdout();
 
 fn writeRaw(s: []const u8) void {
-    stdout_file.writeAll(s) catch {};
+    stdout_file.writeStreamingAll(types.defaultIo(), s) catch {}; // axiom-6th
 }
 
 fn writeInt(val: anytype) void {
@@ -269,7 +270,7 @@ pub const Engine = struct {
                     existing.det.marker() orelse '?',
                     clause.det.marker() orelse '?',
                 }) catch "Error: Conflicting determinism.\n";
-                stdout_file.writeAll(msg) catch {};
+                writeRaw(msg);
             }
             // Update det if this clause specifies and existing doesn't
             if (clause.det != .unspecified and existing.det == .unspecified) {
@@ -306,7 +307,7 @@ pub const Engine = struct {
                     decl.det.marker() orelse '?',
                     existing.det.marker() orelse '?',
                 }) catch "Error: conflicting mode/det.\n";
-                stdout_file.writeAll(msg) catch {};
+                writeRaw(msg);
             }
             // Update
             try self.pred_info.put(key, .{
@@ -365,14 +366,14 @@ pub const Engine = struct {
             if (info.det == .det and clause_count > 1) {
                 var buf: [256]u8 = undefined;
                 const msg = std.fmt.bufPrint(&buf, "Warning: {s}/{d} is declared det (!) but has {d} clauses — may produce multiple solutions.\n", .{ info.name, info.arity, clause_count }) catch continue;
-                stdout_file.writeAll(msg) catch {};
+                writeRaw(msg);
             }
 
             // Semidet check
             if (info.det == .semidet and clause_count > 1) {
                 var buf2: [256]u8 = undefined;
                 const msg2 = std.fmt.bufPrint(&buf2, "Warning: {s}/{d} is declared semidet (?) but has {d} clauses — may produce multiple solutions.\n", .{ info.name, info.arity, clause_count }) catch continue;
-                stdout_file.writeAll(msg2) catch {};
+                writeRaw(msg2);
             }
 
             // Mode check info
@@ -380,7 +381,7 @@ pub const Engine = struct {
                 _ = modes;
                 var buf3: [256]u8 = undefined;
                 const msg3 = std.fmt.bufPrint(&buf3, "  {s}/{d}: modes declared, runtime checking active.\n", .{ info.name, info.arity }) catch continue;
-                stdout_file.writeAll(msg3) catch {};
+                writeRaw(msg3);
             }
         }
     }
@@ -786,10 +787,10 @@ pub const Engine = struct {
 
     pub fn explainLastProof(self: *const Engine, subst: *const Substitution) void {
         const proof = self.last_proof orelse {
-            stdout_file.writeAll("No proof available. Run a query first.\n") catch {};
+            writeRaw("No proof available. Run a query first.\n");
             return;
         };
-        stdout_file.writeAll("\nBecause:\n") catch {};
+        writeRaw("\nBecause:\n");
         self.printProofNode(&proof, subst, 1);
     }
 
@@ -798,26 +799,26 @@ pub const Engine = struct {
         var spaces: [64]u8 = undefined;
         const n = @min(indent * 2, 64);
         @memset(spaces[0..n], ' ');
-        stdout_file.writeAll(spaces[0..n]) catch {};
+        writeRaw(spaces[0..n]);
 
-        stdout_file.writeAll("- ") catch {};
+        writeRaw("- ");
 
         // Print the resolved goal
         writeRaw(node.goal.functor);
         writeRaw("(");
         for (node.goal.args, 0..) |arg, i| {
-            if (i > 0) stdout_file.writeAll(", ") catch {};
+            if (i > 0) writeRaw(", ");
             const walked = subst.deepWalk(arg, self.allocator) catch arg;
             writeTermTo(walked);
         }
-        stdout_file.writeAll(")") catch {};
+        writeRaw(")");
 
         if (node.is_builtin) {
-            stdout_file.writeAll("  [built-in]\n") catch {};
+            writeRaw("  [built-in]\n");
         } else if (node.is_fact) {
-            stdout_file.writeAll("  [fact]\n") catch {};
+            writeRaw("  [fact]\n");
         } else {
-            stdout_file.writeAll("  [rule]\n") catch {};
+            writeRaw("  [rule]\n");
             // Show clause body as sub-proof
             if (node.clause_used) |clause| {
                 for (clause.body) |body_goal| {
@@ -835,12 +836,12 @@ pub const Engine = struct {
                         .not => |inner| {
                             switch (inner.*) {
                                 .call => |c| {
-                                    stdout_file.writeAll(spaces[0..n]) catch {};
-                                    stdout_file.writeAll("    \\+ ") catch {};
+                                    writeRaw(spaces[0..n]);
+                                    writeRaw("    \\+ ");
                                     var nbuf: [256]u8 = undefined;
                                     const nt = std.fmt.bufPrint(&nbuf, "{s}(...)", .{c.functor}) catch "?";
-                                    stdout_file.writeAll(nt) catch {};
-                                    stdout_file.writeAll("  [negation succeeded]\n") catch {};
+                                    writeRaw(nt);
+                                    writeRaw("  [negation succeeded]\n");
                                 },
                                 else => {},
                             }
