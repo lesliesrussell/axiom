@@ -4,6 +4,7 @@ const parser_mod = @import("parser.zig");
 const desugar_mod = @import("desugar.zig");
 const engine_mod = @import("engine.zig");
 const types = @import("types.zig");
+const editor_mod = @import("editor.zig"); // axiom-82z
 
 const Lexer = lexer_mod.Lexer;
 const Parser = parser_mod.Parser;
@@ -51,6 +52,13 @@ fn okStr(s: []const u8) void {
     eout.style(.reset);
 }
 
+// axiom-82z: completion list for the line editor
+const REPL_COMMANDS = [_][]const u8{
+    ":check", ":clear", ":help", ":load ", ":pred ", ":quit", ":reload",
+    ":retract ", ":save ", ":show", ":show facts", ":show rules",
+    ":trace", ":trace on", ":trace off", ":why",
+};
+
 // axiom-76a
 // Byte offset of (1-based) line/col in source. Lexer counts cols per byte.
 fn byteOffsetOf(source: []const u8, line: usize, col: usize) usize {
@@ -83,6 +91,7 @@ const Axiom = struct {
     last_query_goals: ?[]const Goal,
     loaded_files: std.ArrayList([]const u8), // axiom-76a: for :reload
     verbose_asserts: bool, // axiom-wk4: per-clause Added: feedback (off during loads)
+    history_path: ?[]const u8, // axiom-82z
 
     fn init(allocator: std.mem.Allocator) Axiom {
         return .{
@@ -93,6 +102,7 @@ const Axiom = struct {
             .last_query_goals = null,
             .loaded_files = .empty,
             .verbose_asserts = true,
+            .history_path = null,
         };
     }
 
@@ -497,10 +507,44 @@ const Axiom = struct {
         writeStr("Axiom v0.3 — A Prolog-style logic language with controlled-English syntax\n");
         writeStr("Commands: :load, :show, :trace, :why, :pred, :check, :help, :quit\n\n");
 
+        // axiom-82z: line editor on a terminal, plain loop otherwise
+        const io = types.defaultIo();
+        const tty = (std.Io.File.stdin().isTty(io) catch false) and
+            (std.Io.File.stdout().isTty(io) catch false);
+        if (tty) {
+            try self.replInteractive();
+        } else {
+            try self.replPiped();
+        }
+    }
+
+    // axiom-82z
+    fn replInteractive(self: *Axiom) !void {
+        const prompt = if (eout.color_enabled) "\x1b[36maxiom> \x1b[0m" else "axiom> ";
+        var ed = editor_mod.Editor.init(self.allocator, types.defaultIo(), .{
+            .prompt = prompt,
+            .commands = &REPL_COMMANDS,
+            .history_path = self.history_path,
+        });
+        defer ed.deinit();
+
+        while (true) {
+            const line = (ed.readLine() catch |err| {
+                errOut("Editor error: {}\n", .{err});
+                return;
+            }) orelse {
+                writeStr("Goodbye.\n");
+                return;
+            };
+            const input = std.mem.trim(u8, line, &std.ascii.whitespace);
+            if (input.len == 0) continue;
+            if (!self.handleLine(input)) return;
+        }
+    }
+
+    fn replPiped(self: *Axiom) !void {
         const stdin_file = std.Io.File.stdin(); // axiom-6th
         var line_buf: [4096]u8 = undefined;
-        var remaining: []u8 = &.{};
-        _ = &remaining;
 
         while (true) {
             eout.style(.accent); // axiom-wk4
@@ -527,10 +571,17 @@ const Axiom = struct {
                 const input = std.mem.trim(u8, line, &std.ascii.whitespace);
                 if (input.len == 0) continue;
 
+                if (!self.handleLine(input)) return;
+            }
+        }
+    }
+
+    /// Dispatch one REPL line. Returns false when the session should end.
+    fn handleLine(self: *Axiom, input: []const u8) bool {
                 // REPL commands
                 if (std.mem.eql(u8, input, ":quit") or std.mem.eql(u8, input, ":q")) {
                     writeStr("Goodbye.\n");
-                    return;
+                    return false;
                 }
 
                 if (std.mem.startsWith(u8, input, ":load ")) {
@@ -538,12 +589,12 @@ const Axiom = struct {
                     self.loadFile(filename) catch |err| {
                         output("Error: {}\n", .{err});
                     };
-                    continue;
+                    return true;
                 }
 
                 if (std.mem.eql(u8, input, ":show")) {
                     self.showClauses(.all);
-                    continue;
+                    return true;
                 }
 
                 // axiom-krf
@@ -556,42 +607,42 @@ const Axiom = struct {
                     } else {
                         errStr("Usage: :show [facts|rules]\n");
                     }
-                    continue;
+                    return true;
                 }
 
                 // axiom-76a
                 if (std.mem.startsWith(u8, input, ":retract")) {
                     const arg = std.mem.trim(u8, input[8..], &std.ascii.whitespace);
                     self.retractClause(arg);
-                    continue;
+                    return true;
                 }
 
                 if (std.mem.eql(u8, input, ":clear")) {
                     self.clearKb();
-                    continue;
+                    return true;
                 }
 
                 if (std.mem.startsWith(u8, input, ":save")) {
                     const arg = std.mem.trim(u8, input[5..], &std.ascii.whitespace);
                     self.saveClauses(arg);
-                    continue;
+                    return true;
                 }
 
                 if (std.mem.eql(u8, input, ":reload")) {
                     self.reloadFiles();
-                    continue;
+                    return true;
                 }
 
                 // Trace commands
                 if (std.mem.eql(u8, input, ":trace on")) {
                     self.engine.trace_enabled = true;
                     writeStr("Trace: ON\n");
-                    continue;
+                    return true;
                 }
                 if (std.mem.eql(u8, input, ":trace off")) {
                     self.engine.trace_enabled = false;
                     writeStr("Trace: OFF\n");
-                    continue;
+                    return true;
                 }
                 if (std.mem.eql(u8, input, ":trace")) {
                     if (self.engine.trace_enabled) {
@@ -599,38 +650,37 @@ const Axiom = struct {
                     } else {
                         writeStr("Trace is OFF\n");
                     }
-                    continue;
+                    return true;
                 }
 
                 // Why command — axiom-9nz: :why [n]
                 if (std.mem.eql(u8, input, ":why") or std.mem.startsWith(u8, input, ":why ")) {
                     const arg = if (input.len > 4) std.mem.trim(u8, input[4..], &std.ascii.whitespace) else "";
                     self.explainWhy(arg);
-                    continue;
+                    return true;
                 }
 
                 // :pred Name/Arity
                 if (std.mem.startsWith(u8, input, ":pred ")) {
                     self.showPredInfo(std.mem.trim(u8, input[6..], &std.ascii.whitespace));
-                    continue;
+                    return true;
                 }
 
                 // :check
                 if (std.mem.eql(u8, input, ":check")) {
                     self.runChecks();
-                    continue;
+                    return true;
                 }
 
                 // Help
                 if (std.mem.eql(u8, input, ":help")) {
                     self.printHelp();
-                    continue;
+                    return true;
                 }
 
                 // Process as Axiom source
                 self.processSourceHandleError(input);
-            }
-        }
+                return true;
     }
 
     fn printHelp(_: *Axiom) void {
@@ -812,6 +862,11 @@ pub fn main(init: std.process.Init) !void {
     eout.color_enabled = is_tty and init.environ_map.get("NO_COLOR") == null;
 
     var axiom = Axiom.init(allocator);
+
+    // axiom-82z: persistent history location
+    if (init.environ_map.get("HOME")) |home| {
+        axiom.history_path = try std.fmt.allocPrint(allocator, "{s}/.axiom_history", .{home});
+    }
 
     // axiom-6th
     var args_it = std.process.Args.Iterator.init(init.minimal.args);

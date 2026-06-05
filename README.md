@@ -248,6 +248,16 @@ Paths are relative to the including file. Cyclic includes are detected and rejec
 
 ## The REPL
 
+### Line editing
+
+On a terminal, the REPL provides emacs-style line editing (`C-a`/`C-e`,
+`C-k`/`C-u`/`C-w`, word motion with `M-b`/`M-f`), persistent history
+(`~/.axiom_history`, recalled with arrows or `C-p`/`C-n`), and Tab
+completion: command names cycle, and file arguments to `:load`/`:save`
+open [fzf](https://github.com/junegunn/fzf) when installed (a built-in
+prefix-cycling fallback otherwise). Piped input bypasses the editor
+entirely.
+
 ### Commands
 
 | Command | Effect |
