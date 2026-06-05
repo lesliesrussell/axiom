@@ -1,0 +1,27 @@
+# axiom-3d0
+# code-spider configuration for the axiom repo.
+
+intelligence:
+  # Roots for reachability / unused-file analysis. The engine is consumed
+  # through three frontends: the CLI/REPL, the C FFI, and the Zig module.
+  entrypoints:
+    - src/main.zig
+    - src/capi.zig
+    - src/lib.zig
+
+  # Public API surfaces are flagged as unused-export because their callers
+  # are external (C clients linking libaxiom, Zig consumers importing the
+  # module). Suppress those rules for the two API shim files.
+  suppressions:
+    - rule: unused-export
+      path: src/capi.zig
+      owner: leslierussell
+      reason: C ABI surface — callers are external programs linking libaxiom (see examples/ffi_test.c)
+    - rule: unused-symbol
+      path: src/capi.zig
+      owner: leslierussell
+      reason: C ABI surface — exported extern fns and their helpers are used by external linkers
+    - rule: unused-symbol
+      path: src/lib.zig
+      owner: leslierussell
+      reason: Public Zig embedding API — callers import the axiom module from other projects
