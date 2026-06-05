@@ -5,7 +5,7 @@ zig-out/
 /build/
 /build-*/
 /docgen_tmp/
-specs/
+/specs/
 .nardo/
 .omc/
 .Rhistory
