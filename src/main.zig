@@ -30,12 +30,37 @@ fn writeStr(s: []const u8) void {
     stdout_file.writeStreamingAll(types.defaultIo(), s) catch {}; // axiom-6th
 }
 
+// axiom-76a
+// Byte offset of (1-based) line/col in source. Lexer counts cols per byte.
+fn byteOffsetOf(source: []const u8, line: usize, col: usize) usize {
+    var cur_line: usize = 1;
+    var i: usize = 0;
+    while (i < source.len and cur_line < line) : (i += 1) {
+        if (source[i] == '\n') cur_line += 1;
+    }
+    return @min(i + col - 1, source.len);
+}
+
+// axiom-76a
+// Source span of a statement from its first through last token (inclusive).
+// Token lexemes can be static literals, so offsets come from line/col.
+fn statementSpan(source: []const u8, tokens: []const types.Token, start_idx: usize, end_idx: usize) []const u8 {
+    if (start_idx >= tokens.len or end_idx >= tokens.len or end_idx < start_idx) return "";
+    const st = tokens[start_idx];
+    const et = tokens[end_idx];
+    const s = byteOffsetOf(source, st.line, st.col);
+    const e = @min(byteOffsetOf(source, et.line, et.col) + et.lexeme.len, source.len);
+    if (e <= s) return "";
+    return source[s..e];
+}
+
 const Axiom = struct {
     engine: Engine,
     allocator: std.mem.Allocator,
     include_stack: std.ArrayList([]const u8), // for cyclic include detection
     last_solution: ?Substitution, // for :why
     last_query_goals: ?[]const Goal,
+    loaded_files: std.ArrayList([]const u8), // axiom-76a: for :reload
 
     fn init(allocator: std.mem.Allocator) Axiom {
         return .{
@@ -44,6 +69,7 @@ const Axiom = struct {
             .include_stack = .empty,
             .last_solution = null,
             .last_query_goals = null,
+            .loaded_files = .empty,
         };
     }
 
@@ -55,20 +81,26 @@ const Axiom = struct {
         var lex = Lexer.init(source);
         const tokens = try lex.tokenize(self.allocator);
         var parser = Parser.init(tokens, self.allocator);
-        const stmts = try parser.parseProgram();
 
-        for (stmts) |stmt| {
-            try self.processStatementWithDir(stmt, base_dir);
+        // axiom-76a: parse statement-by-statement to capture source spans
+        while (parser.peek().tag != .eof) {
+            const start_idx = parser.pos;
+            if (parser.parseStatement()) |stmt| {
+                const span = statementSpan(source, tokens, start_idx, parser.pos - 1);
+                try self.processStatementWithDir(stmt, base_dir, span);
+            } else |_| {
+                parser.recover();
+            }
         }
     }
 
     const ProcessError = std.mem.Allocator.Error || parser_mod.ParseError || desugar_mod.DesugarError;
 
     fn processStatement(self: *Axiom, stmt: Statement) ProcessError!void {
-        return self.processStatementWithDir(stmt, null);
+        return self.processStatementWithDir(stmt, null, "");
     }
 
-    fn processStatementWithDir(self: *Axiom, stmt: Statement, base_dir: ?[]const u8) ProcessError!void {
+    fn processStatementWithDir(self: *Axiom, stmt: Statement, base_dir: ?[]const u8, source_text: []const u8) ProcessError!void {
         switch (stmt) {
             .command => |cmd| {
                 switch (cmd) {
@@ -88,7 +120,10 @@ const Axiom = struct {
                 if (try desugarer.desugar(stmt)) |result| {
                     switch (result) {
                         .clause => |clause| {
-                            try self.engine.addClause(clause);
+                            // axiom-76a
+                            var c = clause;
+                            c.source_text = source_text;
+                            try self.engine.addClause(c);
                             const det_str = if (clause.det.marker()) |m| &[_]u8{m} else "";
                             output("  Added: {s}/{d}{s}\n", .{ clause.head.functor, clause.head.args.len, det_str });
                         },
@@ -207,12 +242,15 @@ const Axiom = struct {
     }
 
     fn loadFile(self: *Axiom, filename: []const u8) !void {
+        var actual: []const u8 = filename; // axiom-76a: path that actually loaded
         const source = std.Io.Dir.cwd().readFileAlloc(types.defaultIo(), filename, self.allocator, .limited(1024 * 1024)) catch blk: {
             const with_ext = try std.fmt.allocPrint(self.allocator, "{s}.axm", .{filename});
-            break :blk std.Io.Dir.cwd().readFileAlloc(types.defaultIo(), with_ext, self.allocator, .limited(1024 * 1024)) catch |err| {
+            const src2 = std.Io.Dir.cwd().readFileAlloc(types.defaultIo(), with_ext, self.allocator, .limited(1024 * 1024)) catch |err| {
                 output("Error loading '{s}': {}\n", .{ filename, err });
                 return;
             };
+            actual = with_ext;
+            break :blk src2;
         };
 
         // Compute base directory for includes
@@ -222,10 +260,34 @@ const Axiom = struct {
             null;
 
         try self.processSourceWithDir(source, base_dir);
-        output("Loaded '{s}'.\n", .{filename});
+        // axiom-76a: track for :reload (dupe — callers may pass transient buffers)
+        const stored = try self.allocator.dupe(u8, actual);
+        try self.loaded_files.append(self.allocator, stored);
+        output("Loaded '{s}'.\n", .{actual});
     }
 
     // axiom-krf
+    fn printClause(clause: Clause) void {
+        output("{s}(", .{clause.head.functor});
+        for (clause.head.args, 0..) |arg, j| {
+            if (j > 0) writeStr(", ");
+            printTerm(arg);
+        }
+        writeStr(")");
+        // Show determinism marker if declared
+        if (clause.det.marker()) |m| {
+            const marker_str = &[_]u8{m};
+            writeStr(marker_str);
+        }
+        if (clause.body.len > 0) {
+            writeStr(" :- ");
+            for (clause.body, 0..) |goal, j| {
+                if (j > 0) writeStr(", ");
+                printGoal(goal);
+            }
+        }
+    }
+
     const ShowFilter = enum { all, facts, rules };
 
     fn showClauses(self: *Axiom, filter: ShowFilter) void {
@@ -238,24 +300,8 @@ const Axiom = struct {
                 .rules => if (clause.body.len == 0) continue,
             }
             shown += 1;
-            output("{d}: {s}(", .{ i + 1, clause.head.functor });
-            for (clause.head.args, 0..) |arg, j| {
-                if (j > 0) writeStr(", ");
-                printTerm(arg);
-            }
-            writeStr(")");
-            // Show determinism marker if declared
-            if (clause.det.marker()) |m| {
-                const marker_str = &[_]u8{m};
-                writeStr(marker_str);
-            }
-            if (clause.body.len > 0) {
-                writeStr(" :- ");
-                for (clause.body, 0..) |goal, j| {
-                    if (j > 0) writeStr(", ");
-                    printGoal(goal);
-                }
-            }
+            output("{d}: ", .{i + 1});
+            printClause(clause);
             writeStr(".\n");
         }
         if (shown == 0) {
@@ -264,6 +310,77 @@ const Axiom = struct {
                 .facts => writeStr("No facts loaded.\n"),
                 .rules => writeStr("No rules loaded.\n"),
             }
+        }
+    }
+
+    // axiom-76a
+    fn retractClause(self: *Axiom, arg: []const u8) void {
+        const n = std.fmt.parseInt(usize, arg, 10) catch 0;
+        if (n == 0) {
+            writeStr("Usage: :retract <clause-number>  (see :show)\n");
+            return;
+        }
+        const removed = self.engine.removeClause(n - 1) orelse {
+            output("No clause {d} ({d} clauses loaded — see :show).\n", .{ n, self.engine.getClauses().len });
+            return;
+        };
+        output("Retracted {d}: ", .{n});
+        printClause(removed);
+        writeStr(".\n");
+    }
+
+    // axiom-76a
+    fn clearKb(self: *Axiom) void {
+        const n = self.engine.getClauses().len;
+        self.engine.clearClauses();
+        self.loaded_files.clearRetainingCapacity();
+        output("Cleared {d} clauses.\n", .{n});
+    }
+
+    // axiom-76a
+    fn saveClauses(self: *Axiom, path: []const u8) void {
+        if (path.len == 0) {
+            writeStr("Usage: :save <file>\n");
+            return;
+        }
+        const clauses = self.engine.getClauses();
+        var buf: std.ArrayList(u8) = .empty;
+        defer buf.deinit(self.allocator);
+        var saved: usize = 0;
+        var skipped: usize = 0;
+        for (clauses) |clause| {
+            if (clause.source_text.len == 0) {
+                skipped += 1;
+                continue;
+            }
+            buf.appendSlice(self.allocator, clause.source_text) catch return;
+            buf.append(self.allocator, '\n') catch return;
+            saved += 1;
+        }
+        std.Io.Dir.cwd().writeFile(types.defaultIo(), .{ .sub_path = path, .data = buf.items }) catch |err| {
+            output("Error saving '{s}': {}\n", .{ path, err });
+            return;
+        };
+        if (skipped > 0) {
+            output("Saved {d} clauses to '{s}' ({d} had no source text).\n", .{ saved, path, skipped });
+        } else {
+            output("Saved {d} clauses to '{s}'.\n", .{ saved, path });
+        }
+    }
+
+    // axiom-76a
+    fn reloadFiles(self: *Axiom) void {
+        if (self.loaded_files.items.len == 0) {
+            writeStr("No files loaded this session.\n");
+            return;
+        }
+        // Snapshot and reset; loadFile re-appends each file it loads.
+        const files = self.loaded_files.toOwnedSlice(self.allocator) catch return;
+        self.engine.clearClauses();
+        for (files) |f| {
+            self.loadFile(f) catch |err| {
+                output("Error reloading '{s}': {}\n", .{ f, err });
+            };
         }
     }
 
@@ -380,6 +497,29 @@ const Axiom = struct {
                     continue;
                 }
 
+                // axiom-76a
+                if (std.mem.startsWith(u8, input, ":retract")) {
+                    const arg = std.mem.trim(u8, input[8..], &std.ascii.whitespace);
+                    self.retractClause(arg);
+                    continue;
+                }
+
+                if (std.mem.eql(u8, input, ":clear")) {
+                    self.clearKb();
+                    continue;
+                }
+
+                if (std.mem.startsWith(u8, input, ":save")) {
+                    const arg = std.mem.trim(u8, input[5..], &std.ascii.whitespace);
+                    self.saveClauses(arg);
+                    continue;
+                }
+
+                if (std.mem.eql(u8, input, ":reload")) {
+                    self.reloadFiles();
+                    continue;
+                }
+
                 // Trace commands
                 if (std.mem.eql(u8, input, ":trace on")) {
                     self.engine.trace_enabled = true;
@@ -441,6 +581,10 @@ const Axiom = struct {
             \\  :show            List all loaded clauses
             \\  :show facts      List only facts
             \\  :show rules      List only rules
+            \\  :retract <n>     Remove clause n (numbers shift; see :show)
+            \\  :clear           Remove all clauses and declarations
+            \\  :save <file>     Save clause sentences to a file
+            \\  :reload          Clear, then re-load all loaded files
             \\  :trace on/off    Toggle execution tracing
             \\  :trace           Show current trace status
             \\  :why             Explain the last successful query
@@ -472,8 +616,10 @@ const Axiom = struct {
 
         // Try parsing each statement individually for better error reporting
         while (parser.peek().tag != .eof) {
+            const start_idx = parser.pos; // axiom-76a
             if (parser.parseStatement()) |stmt| {
-                self.processStatementWithDir(stmt, null) catch |err| {
+                const span = statementSpan(input, tokens, start_idx, parser.pos - 1);
+                self.processStatementWithDir(stmt, null, span) catch |err| {
                     self.printParseErrorWithPos(input, err, 0, 0, "");
                 };
             } else |_| {

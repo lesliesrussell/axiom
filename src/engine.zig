@@ -53,8 +53,28 @@ pub const Engine = struct {
     }
 
     pub fn addClause(self: *Engine, clause: Clause) !void {
-        try self.clauses.append(self.allocator, clause);
-        try checks.recordClause(&self.pred_info, self.allocator, clause);
+        // axiom-76a: own the source text — callers may pass transient buffers
+        var stored = clause;
+        if (clause.source_text.len > 0) {
+            stored.source_text = try self.allocator.dupe(u8, clause.source_text);
+        }
+        try self.clauses.append(self.allocator, stored);
+        try checks.recordClause(&self.pred_info, self.allocator, stored);
+    }
+
+    // axiom-76a
+    /// Remove clause at `index`, returning it for display. Null if out of
+    /// range. Arena memory is not reclaimed until engine death.
+    pub fn removeClause(self: *Engine, index: usize) ?Clause {
+        if (index >= self.clauses.items.len) return null;
+        return self.clauses.orderedRemove(index);
+    }
+
+    // axiom-76a
+    /// Remove all clauses and predicate info (det/mode declarations).
+    pub fn clearClauses(self: *Engine) void {
+        self.clauses.clearRetainingCapacity();
+        self.pred_info.clearRetainingCapacity();
     }
 
     pub fn registerMode(self: *Engine, decl: ModeDecl) !void {

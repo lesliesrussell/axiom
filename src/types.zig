@@ -172,6 +172,7 @@ pub const Clause = struct {
     head: Term.Compound,
     body: []const Goal,
     det: Determinism = .unspecified,
+    source_text: []const u8 = "", // axiom-76a: original sentence for :save
 };
 
 // ─── English Surface AST ───────────────────────────────────────────────────
