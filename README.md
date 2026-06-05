@@ -128,11 +128,41 @@ zig-out/
 └── include/axiom.h        # C header
 ```
 
-To install to `~/.local`:
+### Installing globally
+
+Install an optimized build to `~/.local` (no sudo needed):
 
 ```sh
-zig build --prefix ~/.local
+zig build install --prefix ~/.local -Doptimize=ReleaseFast
 ```
+
+This places:
+
+```
+~/.local/
+├── bin/axiom              # CLI / REPL
+├── lib/libaxiom.a         # static library
+├── lib/libaxiom.dylib     # shared library (.so on Linux)
+└── include/axiom.h        # C header
+```
+
+Make sure `~/.local/bin` is on your `PATH`, then `axiom` works from anywhere:
+
+```sh
+axiom
+axiom> Socrates is a man.
+axiom> Is Socrates a man?
+Yes.
+```
+
+C clients compile against the installed library:
+
+```sh
+cc app.c -I"$HOME/.local/include" -L"$HOME/.local/lib" -laxiom
+# add -Wl,-rpath,"$HOME/.local/lib" if linking the shared library
+```
+
+For a system-wide install use `--prefix /usr/local` (requires sudo).
 
 ---
 
