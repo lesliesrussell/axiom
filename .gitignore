@@ -9,6 +9,7 @@ specs/
 .nardo/
 .omc/
 .Rhistory
+.DS_Store
 
 # Beads / Dolt files (added by bd init)
 .dolt/
