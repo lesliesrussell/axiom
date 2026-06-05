@@ -296,6 +296,7 @@ pub const Statement = union(enum) {
         subject: []const u8,
         resource: ?[]const u8,
     },
+    why_not_query: void, // axiom-07s: "Why not?"
 };
 
 pub const QueryKind = enum {

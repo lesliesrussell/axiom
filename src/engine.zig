@@ -404,6 +404,143 @@ pub const Engine = struct {
         return allowed.toOwnedSlice(a);
     }
 
+    // ─── Counterfactuals (axiom-07s) ────────────────────────────────
+
+    pub const NearMiss = struct {
+        rule: []const u8,
+        blocker: []const u8,
+        blocker_negated: bool,
+    };
+
+    pub const DenyPath = struct {
+        rule: []const u8,
+        evidence: []const []const u8,
+    };
+
+    pub const WhyNot = struct {
+        near_misses: []const NearMiss,
+        denies: []const DenyPath,
+    };
+
+    /// Per-rule first-blocker counterfactual analysis: which deny rules
+    /// fired (and on which removable facts), and where each allow rule
+    /// that did NOT fire got blocked. Temp-ctx scoped like decide().
+    pub fn whyNot(self: *Engine, subject: []const u8, action: []const u8, resource: ?[]const u8) !WhyNot {
+        const a = self.allocator;
+        const before = self.clauses.items.len;
+        defer {
+            while (self.clauses.items.len > before) {
+                _ = self.clauses.pop();
+            }
+        }
+
+        const ctx: Term = .{ .atom = decision_ctx };
+        try self.addClause(.{ .head = .{ .functor = "subject", .args = try dupTerms(a, &.{ ctx, .{ .atom = try a.dupe(u8, subject) } }) }, .body = &.{} });
+        try self.addClause(.{ .head = .{ .functor = "action", .args = try dupTerms(a, &.{ ctx, .{ .atom = try a.dupe(u8, action) } }) }, .body = &.{} });
+        if (resource) |r| {
+            try self.addClause(.{ .head = .{ .functor = "resource", .args = try dupTerms(a, &.{ ctx, .{ .atom = try a.dupe(u8, r) } }) }, .body = &.{} });
+        }
+
+        // ── active deny rules + their removable evidence ──
+        var denies: std.ArrayList(DenyPath) = .empty;
+        const deny_goal: Term.Compound = .{ .functor = "outcome", .args = try dupTerms(a, &.{ ctx, .{ .atom = "deny" } }) };
+        const dg = try a.alloc(Goal, 1);
+        dg[0] = .{ .call = deny_goal };
+        const deny_solutions = try self.solveAll(dg);
+        for (deny_solutions) |sol| {
+            var witness = try sol.clone();
+            const tree = (try explain.proveGoalPublic(self, deny_goal, &witness, 0)) orelse continue;
+            const rule_name = try ruleName(a, tree.clause_label, tree.clause_id);
+            var dup = false;
+            for (denies.items) |d| {
+                if (std.mem.eql(u8, d.rule, rule_name)) {
+                    dup = true;
+                    break;
+                }
+            }
+            if (dup) continue;
+            var ev: std.ArrayList([]const u8) = .empty;
+            var unused_reasons: std.ArrayList([]const u8) = .empty;
+            try collectFromProof(a, &tree, &unused_reasons, &ev, true);
+            try denies.append(a, .{ .rule = rule_name, .evidence = try ev.toOwnedSlice(a) });
+        }
+
+        // ── near-miss allow rules: first blocker per clause ──
+        var misses: std.ArrayList(NearMiss) = .empty;
+        const allow_head: Term.Compound = .{ .functor = "outcome", .args = try dupTerms(a, &.{ ctx, .{ .atom = "allow" } }) };
+        const n_clauses = before; // iterate the user KB only (pre-ctx)
+        var ci: usize = 0;
+        while (ci < n_clauses) : (ci += 1) {
+            const clause = self.clauses.items[ci];
+            if (!std.mem.eql(u8, clause.head.functor, "outcome") or clause.head.args.len != 2) continue;
+            if (clause.body.len == 0) continue;
+
+            const renamed = try self.renameClause(clause);
+            var attempt = Substitution.init(a);
+            const matched = unify(.{ .compound = allow_head }, .{ .compound = renamed.head }, &attempt) catch false;
+            if (!matched) continue; // not an allow rule (e.g. head is deny)
+
+            var blocker: ?NearMiss = null;
+            var fired = true;
+            for (renamed.body) |bg| {
+                switch (bg) {
+                    .call => |bc| {
+                        if (try explain.proveGoalPublic(self, bc, &attempt, 0)) |node| {
+                            if (node.kind != .unproven) continue;
+                        }
+                        fired = false;
+                        const walked = try walkForDisplay(a, bc, &attempt);
+                        // blocked at a ctx-input goal => the rule is about
+                        // different inputs, not a counterfactual — skip it
+                        if (mentionsCtx(walked)) break;
+                        blocker = .{
+                            .rule = try ruleName(a, clause.label, clause.id),
+                            .blocker = try english.goalToEnglish(a, walked),
+                            .blocker_negated = false,
+                        };
+                    },
+                    .not => |inner| switch (inner.*) {
+                        .call => |nc| {
+                            const provable = explain.isProvablePublic(self, nc, &attempt) catch false;
+                            if (!provable) continue;
+                            fired = false;
+                            const walked = try walkForDisplay(a, nc, &attempt);
+                            if (mentionsCtx(walked)) break;
+                            blocker = .{
+                                .rule = try ruleName(a, clause.label, clause.id),
+                                .blocker = try english.goalToEnglish(a, walked),
+                                .blocker_negated = true,
+                            };
+                        },
+                        else => {},
+                    },
+                    .cut => {},
+                }
+                if (blocker != null) break;
+            }
+            if (!fired) {
+                if (blocker) |b| try misses.append(a, b);
+            }
+        }
+
+        return .{
+            .near_misses = try misses.toOwnedSlice(a),
+            .denies = try denies.toOwnedSlice(a),
+        };
+    }
+
+    fn ruleName(a: std.mem.Allocator, label: []const u8, id: u64) ![]const u8 {
+        if (label.len > 0) return label;
+        var hex_buf: [16]u8 = undefined;
+        const hex = identity.hashHex(id, &hex_buf);
+        return a.dupe(u8, hex);
+    }
+
+    fn walkForDisplay(a: std.mem.Allocator, c: Term.Compound, subst: *const Substitution) !Term.Compound {
+        const walked = try subst.deepWalk(.{ .compound = c }, a);
+        return walked.compound;
+    }
+
     fn dupTerms(a: std.mem.Allocator, terms: []const Term) ![]Term {
         const out = try a.alloc(Term, terms.len);
         @memcpy(out, terms);

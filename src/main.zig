@@ -147,6 +147,12 @@ const Axiom = struct {
     loaded_files: std.ArrayList([]const u8), // axiom-76a: for :reload
     verbose_asserts: bool, // axiom-wk4: per-clause Added: feedback (off during loads)
     history_path: ?[]const u8, // axiom-82z
+    last_should: ?struct { // axiom-07s: inputs + outcome of the last Should
+        subject: []const u8,
+        action: []const u8,
+        resource: ?[]const u8,
+        outcome: Engine.DecisionOutcome,
+    },
 
     fn init(allocator: std.mem.Allocator) Axiom {
         return .{
@@ -158,6 +164,7 @@ const Axiom = struct {
             .loaded_files = .empty,
             .verbose_asserts = true,
             .history_path = null,
+            .last_should = null,
         };
     }
 
@@ -224,6 +231,10 @@ const Axiom = struct {
             .which_actions_query => |q| {
                 self.runAllowedActions(q.subject, q.resource);
             },
+            // axiom-07s
+            .why_not_query => {
+                self.runWhyNot();
+            },
             // axiom-d4s
             .closed_world_decl => |name| {
                 self.engine.declareClosedWorld(name) catch |err| {
@@ -261,6 +272,7 @@ const Axiom = struct {
             errOut("Decision error: {}\n", .{err});
             return;
         };
+        self.last_should = .{ .subject = subject, .action = action, .resource = resource, .outcome = decision.outcome }; // axiom-07s
         switch (decision.outcome) {
             .allow => okStr("Allow.\n"),
             .deny => errStr("Deny.\n"),
@@ -280,6 +292,57 @@ const Axiom = struct {
                 writeStr("  - ");
                 writeStr(e);
                 writeStr(".\n");
+            }
+        }
+    }
+
+    // axiom-07s
+    fn runWhyNot(self: *Axiom) void {
+        const last = self.last_should orelse {
+            writeStr("No decision to explain. Ask a Should question first.\n");
+            return;
+        };
+        if (last.outcome == .allow) {
+            writeStr("Last decision was Allow — nothing to explain. (:why explains it)\n");
+            return;
+        }
+        const wn = self.engine.whyNot(last.subject, last.action, last.resource) catch |err| {
+            errOut("Decision error: {}\n", .{err});
+            return;
+        };
+        if (wn.denies.len == 0 and wn.near_misses.len == 0) {
+            writeStr("No outcome rules reference these inputs.\n");
+            return;
+        }
+        if (wn.denies.len > 0) {
+            writeStr("Deny rules in effect:\n");
+            for (wn.denies) |d| {
+                writeStr("  - ");
+                writeStr(d.rule);
+                if (d.evidence.len > 0) {
+                    writeStr(", relying on: ");
+                    for (d.evidence, 0..) |e, i| {
+                        if (i > 0) writeStr("; ");
+                        writeStr("\"");
+                        writeStr(e);
+                        writeStr("\"");
+                    }
+                }
+                writeStr("\n");
+            }
+        }
+        if (wn.near_misses.len > 0) {
+            writeStr("Allow would need:\n");
+            for (wn.near_misses) |m| {
+                writeStr("  - ");
+                writeStr(m.rule);
+                writeStr(": blocked at \"");
+                writeStr(m.blocker);
+                writeStr("\"");
+                if (m.blocker_negated) {
+                    writeStr(" (currently true — would need to be false)");
+                }
+                writeStr("\n");
             }
         }
     }
@@ -1058,6 +1121,7 @@ const Axiom = struct {
             \\  Queries:  Is Socrates mortal?  /  Who is mortal?
             \\  Decision: Should leslie log_in?  (deny-overrides)
             \\            Which actions can leslie perform on prod?
+            \\            Why not?   (counterfactuals for the last Should)
             \\  Negation: X is not banned.
             \\  Include:  include "file.axm".
             \\  Det:      X is a Y! if ...   (! det, ? semidet, * nondet)

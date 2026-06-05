@@ -72,6 +72,11 @@ pub const Parser = struct {
             if (self.tryShouldQuery()) |stmt| return stmt;
         }
 
+        // axiom-07s: "Why not?"
+        if (first.tag == .variable and std.mem.eql(u8, first.lexeme, "Why")) {
+            if (self.tryWhyNotQuery()) |stmt| return stmt;
+        }
+
         // Queries
         if (first.tag == .kw_is) return self.parseYesNoQuery();
         if (first.tag == .kw_who) return self.parseWhoQuery();
@@ -178,6 +183,23 @@ pub const Parser = struct {
         }
         self.pos += 1;
         return .{ .which_actions_query = .{ .subject = subject, .resource = resource } };
+    }
+
+    // axiom-07s
+    fn tryWhyNotQuery(self: *Parser) ?Statement {
+        const saved = self.pos;
+        self.pos += 1; // "Why"
+        if (self.peek().tag != .kw_not) {
+            self.pos = saved;
+            return null;
+        }
+        self.pos += 1;
+        if (self.peek().tag != .question) {
+            self.pos = saved;
+            return null;
+        }
+        self.pos += 1;
+        return .why_not_query;
     }
 
     // axiom-i01

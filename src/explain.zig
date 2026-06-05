@@ -69,6 +69,11 @@ fn isProvable(eng: *Engine, c: Term.Compound, witness: *const Substitution) Erro
     return found;
 }
 
+/// Public negation check for Engine.whyNot. axiom-07s
+pub fn isProvablePublic(eng: *Engine, c: Term.Compound, witness: *const Substitution) Error!bool {
+    return isProvable(eng, c, witness);
+}
+
 /// Public entry for Engine.decide — same directed search. axiom-i01
 pub fn proveGoalPublic(eng: *Engine, compound: Term.Compound, witness: *Substitution, depth: usize) Error!?ProofNode {
     return proveGoal(eng, compound, witness, depth);

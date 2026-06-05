@@ -67,6 +67,7 @@ pub const Desugarer = struct {
             .closed_world_decl => return null, // axiom-d4s: handled by host
             .should_query => return null, // axiom-i01: handled by host
             .which_actions_query => return null, // axiom-02w: handled by host
+            .why_not_query => return null, // axiom-07s: handled by host
         }
     }
 
