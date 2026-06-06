@@ -70,8 +70,38 @@ python3 scripts/security_conformance_test.py  # security spec conformance (7 cla
 
 ## Architecture Overview
 
-_Add a brief overview of your project architecture_
+Axiom is a logic programming language (Zig) with controlled-English
+syntax: English sentences → Horn clauses → unification/backtracking
+resolution. It ships as a CLI/REPL (`--json` line protocol for agents),
+a C FFI (`libaxiom` + `include/axiom.h`), and a Zig module.
+
+Pipeline: `lexer.zig` → `parser.zig` (sentence AST) → `desugar.zig`
+(clauses) → `engine.zig` (resolution, decisions, budgets) with
+`builtins.zig`, `substitution.zig` (unification + occurs check),
+`explain.zig` (proof trees, `Why not?`), `checks.zig` (lints),
+`main.zig` (REPL + JSON protocol), `capi.zig`/`lib.zig` (C/Zig APIs).
+
+The decision layer (`Should X act?`) resolves `outcome/2` rules with a
+ranked ladder (deny > require_confirmation > allow_with_sandbox >
+allow_with_redaction > allow). On top of it sits the agent security
+stack: `docs/security-spec.md` (architecture), `docs/event-schema.md`
+(envelope → facts), `scripts/axiom_gate.py` (fail-closed gate shim),
+`policies/agent-security.axm` (reference policy).
+
+Full references: `README.md`, `docs/language.md`, `docs/library.md`.
 
 ## Conventions & Patterns
 
-_Add your project-specific conventions here_
+- Comment-tag code added for a bead with just the bead ID (`// axiom-xyz`
+  in Zig, `% axiom-xyz` in .axm, `# axiom-xyz` in Python/shell), one
+  comment per contiguous block.
+- Test suites are self-checking Python scripts in `scripts/` (exit
+  nonzero on deviation, `ok/FAIL` per check) driving the binary over
+  `--json`; `scripts/run_tests.sh` runs them all.
+- Policy rules get stable `% id: <label>` names — labels double as
+  reason codes in machine output.
+- Fail-closed is the default posture: allowlists are `closed_world`,
+  unknown/indeterminate outcomes are treated as deny, engine errors
+  must be structured (never hangs or crashes) so gates can keep serving.
+- `.axm` policy/example files live in `examples/`, `lib/`, `policies/`;
+  design docs per shipped feature in `docs/superpowers/specs/`.

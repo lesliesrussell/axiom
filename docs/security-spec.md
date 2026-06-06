@@ -24,27 +24,29 @@ orientation.
 | Session-scoped decision context | `decide()` asserts `subject`/`action` facts in a temporary scope, popped after evaluation — the template for per-event fact loading |
 | Gate → why-not → remediate → retry loop | Demonstrated end to end in `examples/agent_demo.py` and `scripts/kyc_test.py` |
 
-### Gaps tracked by this epic
+### Gaps tracked by this epic — all shipped 2026-06-06
 
-| Gap | Issue |
-|---|---|
-| String/path matching builtin (`target matches /proc/*/environ`) — no regex/glob primitive exists | **axiom-rhc** |
-| Decision outcomes limited to allow/deny/indeterminate; spec needs `allow_with_redaction`, `allow_with_sandbox`, `require_confirmation` with defined precedence | **axiom-2fx** |
-| Event envelope → facts compilation (schema + reference shim) | **axiom-9jy** |
-| Reference policy implementing D1–D6 + incident rules | **axiom-4t9** |
-| Conformance harness for the 7 test classes | **axiom-vr8** |
+| Gap | Issue | Artifact |
+|---|---|---|
+| String/path matching builtin (`target matches /proc/*/environ`) | **axiom-rhc** ✓ | string terms + `like/2` glob builtin |
+| Decision outcomes limited to allow/deny/indeterminate | **axiom-2fx** ✓ | outcome ladder: deny > require_confirmation > allow_with_sandbox > allow_with_redaction > allow |
+| Event envelope → facts compilation (schema + reference shim) | **axiom-9jy** ✓ | [`event-schema.md`](event-schema.md), `scripts/axiom_gate.py` |
+| Reference policy implementing D1–D6 + incident rules | **axiom-4t9** ✓ | [`policies/agent-security.axm`](../policies/agent-security.axm) |
+| Conformance harness for the 7 test classes | **axiom-vr8** ✓ | `scripts/security_conformance_test.py` (in `scripts/run_tests.sh`) |
 
-### Engine robustness prerequisites
+### Engine robustness prerequisites — both fixed
 
 A fail-closed oracle must not be hangable or crashable by crafted input.
-Two known engine bugs block the conformance milestone:
+Two engine bugs blocked the conformance milestone; both are fixed and
+covered by the conformance suite's adversarial section:
 
-- **axiom-7yv** (P0) — unbounded recursion hangs: no depth/step budget in
-  resolution. An attacker-influenced policy or fact set could stall the
-  oracle; a stalled oracle must still fail closed.
-- **axiom-sek** (P1) — missing occurs check: `same_as(X, [X])` builds an
-  infinite structure and aborts the process (SIGABRT). Process death of the
-  oracle is a fail-open hazard for the interposition layer.
+- **axiom-7yv** ✓ — unbounded recursion now exhausts a resolution budget
+  (200k steps / depth 1,024) and returns a structured `kind: "limit"`
+  error with the engine still alive; the gate shim reports it as a deny
+  (`ORACLE_ERROR`).
+- **axiom-sek** ✓ — unification now performs the occurs check:
+  `same_as(X, [X])` answers No instead of building an infinite structure
+  and aborting the process.
 
 ---
 

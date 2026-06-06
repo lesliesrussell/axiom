@@ -30,8 +30,8 @@ warnings) arrives in an optional `notes` array — never as bare text.
 | `Socrates is a man.` | `ok` | `added: {pred, arity, id, label}` |
 | `Is Socrates mortal?` | `yesno` | `answer` (bool), `cwa` (closed-world No) |
 | `Who is mortal?` | `solutions` | `count`, `solutions: [{Who: "socrates"}]` |
-| `Should vega dock?` | `decision` | `outcome` (allow/deny/indeterminate), `reasons[]`, `evidence[]` |
-| `Why not?` | `whynot` | `denies: [{rule, evidence[]}]`, `near_misses: [{rule, blocker, blocker_negated}]` |
+| `Should vega dock?` | `decision` | `outcome` (allow / deny / indeterminate / allow_with_redaction / allow_with_sandbox / require_confirmation), `reasons[]`, `evidence[]` |
+| `Why not?` | `whynot` | `denies: [{rule, outcome, evidence[]}]` (every gate beating plain allow), `near_misses: [{rule, blocker, blocker_negated}]` |
 | `Which actions can vega perform?` | `actions` | `actions[]` |
 | `:why` | `proof` | `trees: [{kind, goal, rule?, children[]}]` |
 | `:show` / `:show english` | `clauses` | `[{index, id, label, text, english}]` |
@@ -43,6 +43,9 @@ warnings) arrives in an optional `notes` array — never as bare text.
 
 `error.hint` explains unsupported phrasings (plurals, contractions,
 negated queries) — relay it, the fix is usually a one-word rewrite.
+`error.kind == "limit"` means a query blew the resolution budget
+(unbounded recursion); the engine stays usable — treat the query as
+failed (deny, when gating) and continue.
 
 ## Authoring policy (.axm)
 
@@ -57,6 +60,11 @@ Nightingale has mass 4200.               % mass(nightingale, 4200)
 X is mortal if X is a man.
 S is light if S has mass M and M is less than 5000.
 S is welcome if S is a freighter and S is not flagged.
+
+% Strings carry free-form text (paths, URLs, scopes); atoms carry
+% enumerated values. like/2 glob-matches strings ('*' spans '/').
+E has target "/proc/self/environ".
+X is procfs_read if X has target T and T is like "/proc/*/environ".
 ```
 
 Rules for safe authoring:
@@ -72,9 +80,17 @@ Rules for safe authoring:
 
 ### Decision schema (guardrails)
 
-Decisions resolve with **deny-overrides**: any matching deny beats any
-number of allows; nothing matching = `indeterminate`. Treat anything
-other than `allow` as blocked.
+Decisions resolve with generalized **deny-overrides** — the
+highest-ranked derivable outcome wins:
+
+```
+deny > require_confirmation > allow_with_sandbox > allow_with_redaction > allow
+```
+
+Nothing matching = `indeterminate`. Gate fail-closed: proceed only on
+`allow`, treat the gated outcomes as "proceed only after satisfying the
+requirement" (approval, sandbox, redaction), and treat `deny` and
+`indeterminate` as blocked.
 
 ```text
 % the action universe (powers "Which actions can ...")
@@ -120,3 +136,8 @@ D has outcome deny
 - `examples/starport.axm` — full feature tour with a suggested session
 - `examples/guardrail/` — C host demo of the gate pattern
 - `docs/language.md` — complete language reference
+- `docs/security-spec.md` + `docs/event-schema.md` — agent runtime
+  security: event envelope → facts → decision, fail-closed contract
+- `policies/agent-security.axm` — reference security policy (deny rules,
+  closed-world allowlists, gated outcomes); gate it through
+  `scripts/axiom_gate.py`

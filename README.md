@@ -46,6 +46,7 @@ Implemented in [Zig](https://ziglang.org). Ships as a CLI/REPL, a Zig module, an
   - [Proof Explanation](#proof-explanation)
 - [Decisions: Policy as Queries](#decisions-policy-as-queries)
 - [For AI Agents](#for-ai-agents)
+  - [Agent runtime security](#agent-runtime-security)
 - [Built-in Predicates](#built-in-predicates)
 - [Standard Library](#standard-library)
 - [Embedding](#embedding)
@@ -129,6 +130,17 @@ zig-out/
 ├── lib/libaxiom.dylib     # shared library (.so on Linux)
 └── include/axiom.h        # C header
 ```
+
+### Running the tests
+
+```sh
+scripts/run_tests.sh    # build + every self-checking suite
+```
+
+The regression run covers the `--json` protocol contract, an end-to-end
+language scenario (KYC onboarding), the interactive line editor (over a
+PTY), the event-envelope gate shim, and the security conformance suite.
+Each suite is also runnable individually — see each file's header.
 
 ### Installing globally
 
@@ -327,9 +339,17 @@ With multiple solutions, `:why 2` explains the second one.
 
 The deterministic policy layer from the pitch above. Decision rules are
 ordinary rules over a conventional schema — `outcome/2` with
-`subject/action/resource` inputs — and resolve with **deny-overrides**:
-one matching deny beats any number of allows; nothing matching is
-*indeterminate* (and indeterminate is not allowed).
+`subject/action/resource` inputs — and resolve with generalized
+**deny-overrides**: the highest-ranked derivable outcome wins,
+
+```
+deny > require_confirmation > allow_with_sandbox > allow_with_redaction > allow
+```
+
+so one matching deny beats any number of allows, and the three gated
+outcomes let a policy permit an action only under conditions (human
+approval, sandboxing, redaction). Nothing matching is *indeterminate*
+(and indeterminate is not allowed).
 
 ```text
 % id: licensed_captains_dock
@@ -412,6 +432,32 @@ patterns:
 
 Full schema and worked examples: [`skills/axiom/SKILL.md`](skills/axiom/SKILL.md).
 
+### Agent runtime security
+
+Axiom doubles as the deterministic policy oracle for agent runtimes (CI
+agents, Claude Code-style tools, MCP toolchains): an interposition layer
+compiles each proposed action into facts about an event entity, asks
+`Should <event> <action>?`, and enforces the outcome. The full stack
+ships in-repo:
+
+- [`docs/security-spec.md`](docs/security-spec.md) — the architecture:
+  trust levels, taint propagation, mandatory deny rules D1–D6,
+  restricted profiles, fail-closed semantics
+- [`docs/event-schema.md`](docs/event-schema.md) — event envelope →
+  facts mapping
+- [`scripts/axiom_gate.py`](scripts/axiom_gate.py) — reference gate
+  shim over `--json` (fail-closed output contract)
+- [`policies/agent-security.axm`](policies/agent-security.axm) — the
+  reference policy: D1–D6, the June 2026 incident rules, closed-world
+  allowlists, gated outcomes
+- [`scripts/security_conformance_test.py`](scripts/security_conformance_test.py)
+  — the spec's 7 conformance classes plus adversarial fail-closed cases
+
+Robustness for hostile input is engine-level: resolution budgets turn
+unbounded recursion into structured `kind: "limit"` errors instead of
+hangs, and the occurs check makes cyclic unification fail cleanly
+instead of crashing the oracle.
+
 ---
 
 ## Built-in Predicates
@@ -422,7 +468,13 @@ These need no `include` — the engine handles them directly.
 
 | Predicate | Description |
 |---|---|
-| `same_as/2` | Succeeds if both arguments unify |
+| `same_as/2` | Succeeds if both arguments unify (with occurs check — cyclic terms fail cleanly) |
+
+**Strings**
+
+| Predicate | Description |
+|---|---|
+| `like/2` | Glob match for string terms — `*` spans any text: `T is like "/proc/*/environ"` |
 
 **Arithmetic** (integer)
 
@@ -630,11 +682,14 @@ axiom/
 ├── include/axiom.h      # public C header
 ├── lib/                 # standard-library .axm files (lists, math, policy)
 ├── examples/            # tutorial, starport tour, RBAC, dungeon, guardrail demo, FFI test
+├── policies/            # reference security policy (agent-security.axm)
 ├── skills/              # agent skill (see install-skills.sh)
-├── scripts/             # PTY + JSON-protocol test drivers
+├── scripts/             # test suites (run_tests.sh runs them all) + gate shim
 ├── docs/
 │   ├── language.md      # full language reference
 │   ├── library.md       # full embedding guide (C FFI + Zig module)
+│   ├── security-spec.md # agent runtime security architecture
+│   ├── event-schema.md  # event envelope → facts mapping
 │   └── superpowers/specs/  # design docs, one per shipped feature
 └── zig-out/             # build artifacts (after `zig build`)
 ```
@@ -644,7 +699,9 @@ axiom/
 ## Documentation
 
 - **[`docs/language.md`](docs/language.md)** — complete language reference: every fact pattern, rule pattern, query form, determiner, built-in, REPL command, and error message format.
-- **[`docs/library.md`](docs/library.md)** — complete embedding guide: linking, lifecycle, every C FFI function, every Zig module method, term types, substitutions, memory model, threading.
+- **[`docs/library.md`](docs/library.md)** — complete embedding guide: linking, lifecycle, every C FFI function, every Zig module method, decisions, term types, substitutions, memory model, threading.
+- **[`docs/security-spec.md`](docs/security-spec.md)** — agent runtime security architecture: Axiom as the deterministic policy oracle for agent platforms.
+- **[`docs/event-schema.md`](docs/event-schema.md)** — how normalized agent events compile into facts for one decision request.
 - **[`include/axiom.h`](include/axiom.h)** — authoritative C ABI.
 - **[`examples/tutorial.axm`](examples/tutorial.axm)** — guided introduction.
 

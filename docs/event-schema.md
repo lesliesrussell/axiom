@@ -3,7 +3,9 @@
 
 How the [security spec](security-spec.md) event envelope compiles into
 Axiom facts for one decision request. Reference implementation:
-`scripts/axiom_gate.py`.
+`scripts/axiom_gate.py`. Reference policy over this fact model:
+[`policies/agent-security.axm`](../policies/agent-security.axm),
+exercised end to end by `scripts/security_conformance_test.py`.
 
 ## Model
 

@@ -169,6 +169,67 @@ axiom_set_trace(p, true);
 axiom_set_trace(p, false);
 ```
 
+### Decisions
+
+`axiom_decide` evaluates the KB's `outcome/2` decision rules for a
+(subject, action[, resource]) triple. Conflict resolution is generalized
+deny-overrides — the highest-ranked derivable outcome wins:
+
+```
+deny > require_confirmation > allow_with_sandbox > allow_with_redaction > allow
+```
+
+Neither allow nor deny derivable yields `INDETERMINATE` (treat as deny in
+fail-closed integrations).
+
+```c
+typedef enum {
+    AXIOM_DECISION_ALLOW = 0,
+    AXIOM_DECISION_DENY = 1,
+    AXIOM_DECISION_INDETERMINATE = 2,
+    /* gated outcomes, appended for ABI stability */
+    AXIOM_DECISION_ALLOW_WITH_REDACTION = 3,
+    AXIOM_DECISION_ALLOW_WITH_SANDBOX = 4,
+    AXIOM_DECISION_REQUIRE_CONFIRMATION = 5
+} AxiomDecisionOutcome;
+
+AxiomDecision *d = axiom_decide(p, "thane", "dock", NULL);
+if (d->outcome != AXIOM_DECISION_ALLOW) {
+    for (size_t i = 0; i < d->reason_count; i++)
+        printf("reason: %s\n", d->reasons[i]);    // rule labels / clause ids
+    for (size_t i = 0; i < d->evidence_count; i++)
+        printf("  because %s\n", d->evidence[i]); // canonical-English facts
+}
+```
+
+The decision and all its strings are owned by the program's arena: valid
+until `axiom_free(p)`, never freed individually.
+
+`axiom_allowed_actions` enumerates the KB's `action/1` universe and
+returns the actions `decide()` allows for a subject:
+
+```c
+size_t count = 0;
+const char **actions = axiom_allowed_actions(p, "mirelle", NULL, &count);
+for (size_t i = 0; i < count; i++) puts(actions[i]);  // arena-owned
+```
+
+### Semantic Diff and What-If
+
+`axiom_diff_programs` reports clause-level changes between two loaded
+programs (variable renaming is invisible — clauses carry
+alpha-normalized identity hashes). `axiom_compare_decisions` runs a list
+of decision inputs against both versions and returns only the inputs
+whose outcome flips:
+
+```c
+AxiomDecisionInput inputs[] = {{"thane", "dock", NULL}};
+size_t changed = 0;
+AxiomDecisionDelta *deltas =
+    axiom_compare_decisions(oldp, newp, inputs, 1, &changed);
+// deltas owned by newp's arena — valid until axiom_free(newp)
+```
+
 ### Complete C Example
 
 ```c
@@ -334,6 +395,23 @@ const solutions = try program.queryAll(
     &.{.{ .atom = "socrates" }},
 );
 const is_mortal = solutions.len > 0;
+```
+
+### Decisions
+
+```zig
+// Evaluate outcome/2 decision rules for (subject, action[, resource]).
+// Generalized deny-overrides: deny > require_confirmation >
+// allow_with_sandbox > allow_with_redaction > allow; nothing derivable
+// is .indeterminate (treat as deny when failing closed).
+const d = try program.decide("thane", "dock", null);
+if (d.outcome != .allow) {
+    for (d.reasons) |label| ...    // rule labels / clause ids
+    for (d.evidence) |fact| ...    // canonical-English ground facts
+}
+
+// Actions from the KB's action/1 universe that decide() allows
+const actions = try program.allowedActions("mirelle", null);
 ```
 
 ### Utility
