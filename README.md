@@ -368,6 +368,13 @@ Declare the action universe with `Dock is an action.` facts to power
 (`axiom_decide`, `axiom_allowed_actions`) and used by the
 [`examples/guardrail/`](examples/guardrail/) LLM-agent demo.
 
+**For AI agents**: `axiom --json` turns stdin/stdout into a line-oriented
+JSON protocol (one object per statement — decisions, proofs,
+counterfactuals, errors with hints), and `./install-skills.sh` installs a
+ready-made skill into Claude Code (and other detected coding agents) that
+teaches the protocol and the authoring patterns. See
+[`skills/axiom/SKILL.md`](skills/axiom/SKILL.md).
+
 For policy-as-code workflows, `:diff` shows clause-level semantic changes
 between two file versions (variable renaming is invisible — clauses carry
 alpha-normalized identity hashes) and `:whatif` reports which decisions
