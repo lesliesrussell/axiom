@@ -1,0 +1,284 @@
+% axiom-4t9
+% ═════════════════════════════════════════════════════════════════════════
+%  Agent runtime security — reference policy.
+%  Spec: docs/security-spec.md (epic axiom-84n). Event fact model:
+%  docs/event-schema.md; gate shim: scripts/axiom_gate.py.
+%
+%  One decision per normalized event entity E:  Should <e> <action_kind>?
+%  The engine binds D has subject E / D has action <kind>; rules match the
+%  event's facts. Outcome ladder (highest rank wins):
+%    deny > require_confirmation > allow_with_sandbox >
+%    allow_with_redaction > allow
+%  Rule labels (% id:) are the stable reason codes in the output contract.
+%  Allowlists are closed_world and ship empty: absence of proof is an
+%  explicit No — fail closed by construction.
+% ═════════════════════════════════════════════════════════════════════════
+
+% ── closed-world declarations ────────────────────────────────────────────
+
+% Boolean presence facts from the envelope: absence means false.
+Predicate instruction_tainted is closed_world.
+Predicate edited_after_trigger is closed_world.
+Predicate human_approved is closed_world.
+
+% Deployment allowlists: ship empty, operators assert entries in a
+% site-local include. Examples:
+%   "189849" is a trusted_app.
+%   "https://vault.internal/ingest" is approved_for env_secret.
+%   "git status" is a safe_command.
+%   "mcp__github__get_issue" is a safe_tool.
+Predicate trusted_app is closed_world.
+Predicate approved_for is closed_world.
+Predicate safe_command is closed_world.
+Predicate safe_tool is closed_world.
+
+% ── action universe (spec §Event Model canonical kinds) ──────────────────
+
+Skill_install is an action.
+Mcp_connect is an action.
+Prompt_ingest is an action.
+File_read is an action.
+File_write is an action.
+Command_exec is an action.
+Tool_call is an action.
+Network_egress is an action.
+Issue_update is an action.
+Pr_comment is an action.
+Workflow_summary_write is an action.
+Git_push is an action.
+Workflow_modify is an action.
+Secret_materialize is an action.
+Trust_downgrade is an action.
+Session_end is an action.
+
+% ── vocabulary ────────────────────────────────────────────────────────────
+
+% Untrusted trust levels (spec §Trust Levels).
+Untrusted_user is an untrusted_level.
+Untrusted_bot is an untrusted_level.
+Untrusted_remote_content is an untrusted_level.
+Tainted_runtime_output is an untrusted_level.
+
+% Secret classes covered by D2 (spec §Secret Classes).
+Api_key is a critical_secret.
+Github_token is a critical_secret.
+Oidc_exchange_credential is a critical_secret.
+Ssh_key is a critical_secret.
+Cloud_credential is a critical_secret.
+Env_secret is a critical_secret.
+Repo_secret is a critical_secret.
+
+% Action kinds that can reveal, persist, or amplify secrets (spec §Sinks).
+Issue_update is a sink_kind.
+Pr_comment is a sink_kind.
+Workflow_summary_write is a sink_kind.
+Network_egress is a sink_kind.
+Git_push is a sink_kind.
+Workflow_modify is a sink_kind.
+Tool_call is a sink_kind.
+
+% Write-capable GitHub channels (D4).
+Issue_update is a github_write_kind.
+Pr_comment is a github_write_kind.
+Workflow_summary_write is a github_write_kind.
+Git_push is a github_write_kind.
+Workflow_modify is a github_write_kind.
+
+% Repository / workflow self-mutation (D5).
+Workflow_modify is a mutation_kind.
+Git_push is a mutation_kind.
+
+% Sinks named by incident rule 4 for OIDC exfiltration.
+Issue_update is an oidc_exfil_kind.
+Workflow_summary_write is an oidc_exfil_kind.
+Network_egress is an oidc_exfil_kind.
+
+% Low-risk action kinds that are plain-allowed when no deny rule fires.
+File_read is a baseline_allowed_kind.
+File_write is a baseline_allowed_kind.
+Prompt_ingest is a baseline_allowed_kind.
+Tool_call is a baseline_allowed_kind.
+Network_egress is a baseline_allowed_kind.
+Issue_update is a baseline_allowed_kind.
+Pr_comment is a baseline_allowed_kind.
+Workflow_summary_write is a baseline_allowed_kind.
+Git_push is a baseline_allowed_kind.
+Trust_downgrade is a baseline_allowed_kind.
+Session_end is a baseline_allowed_kind.
+
+% ── restricted profiles (spec §Restricted Profiles) ───────────────────────
+% forbidden_capability(Profile, Capability): the capability may be an
+% action kind, an available tool atom, or a declared manifest capability.
+
+Triage_public has forbidden_capability bash.
+Triage_public has forbidden_capability arbitrary_mcp.
+Triage_public has forbidden_capability issue_update_body.
+Triage_public has forbidden_capability summary_write.
+Triage_public has forbidden_capability command_exec.
+Triage_public has forbidden_capability mcp_connect.
+Triage_public has forbidden_capability issue_update.
+Triage_public has forbidden_capability workflow_summary_write.
+Triage_public has forbidden_capability network_egress.
+
+Review_trusted has forbidden_capability secret_materialize.
+Review_trusted has forbidden_capability workflow_modify.
+Review_trusted has forbidden_capability workflow_summary_write.
+Review_trusted has forbidden_capability git_push.
+
+Agent_untrusted has forbidden_capability bash.
+Agent_untrusted has forbidden_capability command_exec.
+Agent_untrusted has forbidden_capability secret_materialize.
+Agent_untrusted has forbidden_capability issue_update.
+Agent_untrusted has forbidden_capability pr_comment.
+Agent_untrusted has forbidden_capability workflow_summary_write.
+Agent_untrusted has forbidden_capability git_push.
+Agent_untrusted has forbidden_capability workflow_modify.
+Agent_untrusted has forbidden_capability network_egress.
+Agent_untrusted has forbidden_capability file_write.
+
+% maintainer_mutation has no flat forbids: workflow mutation is gated
+% per-action by c7_workflow_mutation_needs_approval below.
+
+% ── derived session predicates ────────────────────────────────────────────
+
+% Untrusted input reached the session (spec §Taint Propagation).
+E is tainted_session if E is instruction_tainted.
+E is tainted_session if E has prompt_trust L and L is an untrusted_level.
+E is tainted_session if E has source_trust L and L is an untrusted_level.
+E is tainted_session if E is edited_after_trigger.
+
+% Ambient credentials are present in the runtime.
+E is secret_bearing if E has secret C and C is a critical_secret.
+
+% A secret has actually flowed into session data.
+E is secret_exposed if E has taint C and C is a critical_secret.
+
+% Tainted by untrusted input or by secret access (D5 wording).
+E is compromised_session if E is tainted_session.
+E is compromised_session if E is secret_exposed.
+
+% D1 exposure: untrusted input present, or ambient credentials to steal.
+E is at_risk if E is tainted_session.
+E is at_risk if E is secret_bearing.
+
+% Runtime-secret surfaces (D1): procfs environ plus credential-bearing
+% process state. '*' spans path segments, so /proc/self/environ and
+% /proc/1/task/2/environ both match.
+T is a procfs_secret_path if T is like "/proc/*/environ".
+T is a procfs_secret_path if T is like "/proc/*/status".
+T is a procfs_secret_path if T is like "/proc/*/cmdline".
+
+% Destination explicitly approved for a secret class (D2 allowlist).
+E is cleared_for C if E has destination Dst and Dst is approved_for C.
+
+% Command / tool allowlist hits (D3).
+E is exec_safelisted if E has target Cmd and Cmd is a safe_command.
+E is tool_safelisted if E has target Tool and Tool is a safe_tool.
+
+% Events whose principal acts under a reviewed manifest (D6).
+E is manifest_scoped if E has actor_trust reviewed_skill.
+E is manifest_scoped if E has actor_trust reviewed_mcp.
+E is capable_of A if E has capability A.
+
+% GitHub App presented an immutable app id (incident rule 1).
+E is app_identified if E has actor_app_id Id.
+
+% ── mandatory deny rules D1–D6 (spec §Mandatory Deny Rules) ──────────────
+
+% id: d1_procfs_secret_read
+D has outcome deny if D has subject E and D has action file_read and E has target T and T is a procfs_secret_path and E is at_risk.
+
+% id: d2_secret_to_untrusted_sink
+D has outcome deny if D has subject E and D has action A and A is a sink_kind and E has taint C and C is a critical_secret and E is not cleared_for C.
+
+% id: d3_tainted_exec
+D has outcome deny if D has subject E and D has action command_exec and E is tainted_session and E is not exec_safelisted.
+
+% id: d3_tainted_tool_call
+D has outcome deny if D has subject E and D has action tool_call and E is tainted_session and E is not tool_safelisted.
+
+% id: d4_tainted_github_write
+D has outcome deny if D has subject E and D has action A and A is a github_write_kind and E is tainted_session.
+
+% id: d5_tainted_workflow_mutation
+D has outcome deny if D has subject E and D has action A and A is a mutation_kind and E is compromised_session and E is not human_approved.
+
+% id: d6_capability_mismatch
+D has outcome deny if D has subject E and D has action A and E is manifest_scoped and E is not capable_of A.
+
+% ── incident-specific reference rules (spec §Incident-Specific Reference
+%    Policy: these alone block the June 2026 exploit chain) ───────────────
+
+% id: i1_unallowlisted_github_app
+D has outcome deny if D has subject E and E has actor_type github_app and E has actor_app_id Id and Id is not a trusted_app.
+
+% id: i1_unallowlisted_github_app
+D has outcome deny if D has subject E and E has actor_type github_app and E is not app_identified.
+
+% id: i2_agent_mode_untrusted_trigger
+D has outcome deny if D has subject E and E has exec_mode agent and E has source_trust L and L is not same_as trusted_human.
+
+% id: i3_procfs_environ_read
+D has outcome deny if D has subject E and D has action file_read and E has target T and T is like "/proc/*/environ".
+
+% id: i4_oidc_taint_to_sink
+D has outcome deny if D has subject E and D has action A and A is an oidc_exfil_kind and E has taint oidc_exchange_credential.
+
+% id: i5_idtoken_grant_untrusted_trigger
+D has outcome deny if D has subject E and E has permission "id-token:write" and E has source_trust L and L is not same_as trusted_human.
+
+% id: i6_profile_forbidden_action
+D has outcome deny if D has subject E and D has action A and E has profile P and P has forbidden_capability A.
+
+% id: i6_profile_forbidden_tool
+D has outcome deny if D has subject E and E has profile P and E has tool T and P has forbidden_capability T.
+
+% id: i6_profile_forbidden_capability
+D has outcome deny if D has subject E and E has profile P and E has capability C and P has forbidden_capability C.
+
+% id: i7_edited_after_trigger
+D has outcome deny if D has subject E and E is edited_after_trigger.
+
+% ── gated outcomes ────────────────────────────────────────────────────────
+
+% Shell is a privileged capability: never plain-allowed, always sandboxed
+% (spec §Tool Wrappers). Tainted exec is already denied by d3 above.
+% id: sandboxed_exec
+D has outcome allow_with_sandbox if D has subject E and E is an event and D has action command_exec.
+
+% Tainted sessions write files only inside a sandbox (memory/config files
+% are sinks that influence later agent behavior, spec §Sinks).
+% id: sandboxed_tainted_write
+D has outcome allow_with_sandbox if D has subject E and D has action file_write and E is tainted_session.
+
+% Ambient secrets present: sink payloads must be redacted before leaving
+% the runtime (spec §Secret Handling). Actual secret taint is denied by d2.
+% id: redact_sink_with_ambient_secrets
+D has outcome allow_with_redaction if D has subject E and D has action A and A is a sink_kind and E is secret_bearing.
+
+% Workflow-file mutation always needs a per-action human approval, even in
+% trusted sessions (spec conformance test 7).
+% id: c7_workflow_mutation_needs_approval
+D has outcome require_confirmation if D has subject E and E is an event and D has action workflow_modify and E is not human_approved.
+
+% id: approved_workflow_mutation
+D has outcome allow if D has subject E and D has action workflow_modify and E is human_approved.
+
+% New skills, MCP connections, and secret materialization are gated on a
+% human until trust registries land (spec §MCP and Skill Controls,
+% §Secret Handling).
+% id: gate_skill_install
+D has outcome require_confirmation if D has subject E and E is an event and D has action skill_install.
+
+% id: gate_mcp_connect
+D has outcome require_confirmation if D has subject E and E is an event and D has action mcp_connect.
+
+% id: gate_secret_materialize
+D has outcome require_confirmation if D has subject E and E is an event and D has action secret_materialize.
+
+% ── baseline allow ────────────────────────────────────────────────────────
+% Low-risk kinds are allowed when nothing above outranks; unknown action
+% kinds match no rule and the gate fails closed (NO_MATCHING_POLICY).
+
+% id: baseline_allow
+D has outcome allow if D has subject E and E is an event and D has action A and A is a baseline_allowed_kind.
