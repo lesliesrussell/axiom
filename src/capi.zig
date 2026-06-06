@@ -335,6 +335,10 @@ pub const AxiomDecisionOutcome = enum(c_int) {
     allow = 0,
     deny = 1,
     indeterminate = 2,
+    // axiom-2fx: appended to keep existing ABI values stable
+    allow_with_redaction = 3,
+    allow_with_sandbox = 4,
+    require_confirmation = 5,
 };
 
 pub const AxiomDecision = extern struct {
@@ -381,10 +385,13 @@ export fn axiom_decide(handle: ?*ProgramHandle, subject: ?[*:0]const u8, action:
 
     const out = alloc.create(AxiomDecision) catch return null;
     out.* = .{
-        .outcome = switch (decision.outcome) {
+        .outcome = switch (decision.outcome) { // axiom-2fx
             .allow => .allow,
             .deny => .deny,
             .indeterminate => .indeterminate,
+            .allow_with_redaction => .allow_with_redaction,
+            .allow_with_sandbox => .allow_with_sandbox,
+            .require_confirmation => .require_confirmation,
         },
         .subject = dupeZ(alloc, subj_s) orelse return null,
         .action = dupeZ(alloc, act_s) orelse return null,
@@ -474,10 +481,13 @@ pub const AxiomDecisionDelta = extern struct {
 fn decisionToC(alloc: std.mem.Allocator, d: engine_mod.Engine.Decision, subj: [*:0]const u8, act: [*:0]const u8, res: ?[*:0]const u8) ?*AxiomDecision {
     const out = alloc.create(AxiomDecision) catch return null;
     out.* = .{
-        .outcome = switch (d.outcome) {
+        .outcome = switch (d.outcome) { // axiom-2fx
             .allow => .allow,
             .deny => .deny,
             .indeterminate => .indeterminate,
+            .allow_with_redaction => .allow_with_redaction,
+            .allow_with_sandbox => .allow_with_sandbox,
+            .require_confirmation => .require_confirmation,
         },
         .subject = subj,
         .action = act,

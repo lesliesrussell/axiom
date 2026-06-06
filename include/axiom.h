@@ -96,7 +96,11 @@ const char *axiom_result_get_binding(const AxiomResult *result,
 typedef enum {
     AXIOM_DECISION_ALLOW = 0,
     AXIOM_DECISION_DENY = 1,
-    AXIOM_DECISION_INDETERMINATE = 2
+    AXIOM_DECISION_INDETERMINATE = 2,
+    /* axiom-2fx: gated outcomes, appended for ABI stability */
+    AXIOM_DECISION_ALLOW_WITH_REDACTION = 3,
+    AXIOM_DECISION_ALLOW_WITH_SANDBOX = 4,
+    AXIOM_DECISION_REQUIRE_CONFIRMATION = 5
 } AxiomDecisionOutcome;
 
 typedef struct {

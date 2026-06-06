@@ -329,7 +329,42 @@ pub const Engine = struct {
 
     // ─── Decisions (axiom-i01) ──────────────────────────────────────
 
-    pub const DecisionOutcome = enum { allow, deny, indeterminate };
+    // axiom-2fx: spec-aligned outcome ladder. Deny-overrides generalizes
+    // to highest-rank-wins; rank 0 is plain allow, anything above gates it.
+    pub const DecisionOutcome = enum {
+        allow,
+        allow_with_redaction,
+        allow_with_sandbox,
+        require_confirmation,
+        deny,
+        indeterminate,
+    };
+
+    // axiom-2fx: precedence of outcome atoms (higher beats lower).
+    // Unknown outcome atoms are ignored.
+    pub fn outcomeRank(atom: []const u8) ?u8 {
+        if (std.mem.eql(u8, atom, "deny")) return 4;
+        if (std.mem.eql(u8, atom, "require_confirmation")) return 3;
+        if (std.mem.eql(u8, atom, "allow_with_sandbox")) return 2;
+        if (std.mem.eql(u8, atom, "allow_with_redaction")) return 1;
+        if (std.mem.eql(u8, atom, "allow")) return 0;
+        return null;
+    }
+
+    fn outcomeFromRank(rank: u8) DecisionOutcome {
+        return switch (rank) {
+            0 => .allow,
+            1 => .allow_with_redaction,
+            2 => .allow_with_sandbox,
+            3 => .require_confirmation,
+            else => .deny,
+        };
+    }
+
+    /// The outcome atom for a ranked outcome — also the enum tag name.
+    fn outcomeAtom(outcome: DecisionOutcome) []const u8 {
+        return @tagName(outcome);
+    }
 
     pub const Decision = struct {
         outcome: DecisionOutcome,
@@ -369,25 +404,23 @@ pub const Engine = struct {
         goals[0] = goal;
         const solutions = try self.solveAll(goals);
 
-        // deny-overrides
+        // axiom-2fx: deny-overrides, generalized — highest rank wins
         var winner: ?usize = null;
-        var outcome: DecisionOutcome = .indeterminate;
+        var best_rank: u8 = 0;
         for (solutions, 0..) |sol, i| {
             const bound = sol.walk(out_var);
             if (bound != .atom) continue;
-            if (std.mem.eql(u8, bound.atom, "deny")) {
-                outcome = .deny;
+            const rank = outcomeRank(bound.atom) orelse continue;
+            if (winner == null or rank > best_rank) {
+                best_rank = rank;
                 winner = i;
-                break;
-            }
-            if (std.mem.eql(u8, bound.atom, "allow") and outcome == .indeterminate) {
-                outcome = .allow;
-                winner = i;
+                if (rank == 4) break; // deny short-circuits
             }
         }
         if (winner == null) {
             return .{ .outcome = .indeterminate, .reasons = &.{}, .evidence = &.{} };
         }
+        const outcome = outcomeFromRank(best_rank);
 
         // reasons: explicit reason_id(ctx, R) bindings take precedence
         var reasons: std.ArrayList([]const u8) = .empty;
@@ -403,7 +436,7 @@ pub const Engine = struct {
         }
 
         // witness proof of the winning outcome: rule labels + fact evidence
-        const outcome_atom: []const u8 = if (outcome == .deny) "deny" else "allow";
+        const outcome_atom: []const u8 = outcomeAtom(outcome); // axiom-2fx
         const win_goal: Term.Compound = .{ .functor = "outcome", .args = try dupTerms(a, &.{ ctx, .{ .atom = outcome_atom } }) };
         var witness = try solutions[winner.?].clone();
         if (try explain.proveGoalPublic(self, win_goal, &witness, 0)) |tree| {
@@ -458,6 +491,7 @@ pub const Engine = struct {
     pub const DenyPath = struct {
         rule: []const u8,
         evidence: []const []const u8,
+        outcome: []const u8 = "deny", // axiom-2fx: which gate fired
     };
 
     pub const WhyNot = struct {
@@ -484,28 +518,33 @@ pub const Engine = struct {
             try self.addClause(.{ .head = .{ .functor = "resource", .args = try dupTerms(a, &.{ ctx, .{ .atom = try a.dupe(u8, r) } }) }, .body = &.{} });
         }
 
-        // ── active deny rules + their removable evidence ──
+        // ── active gating rules + their removable evidence ──
+        // axiom-2fx: every outcome that beats plain allow is a blocker —
+        // deny, require_confirmation, allow_with_sandbox, allow_with_redaction
         var denies: std.ArrayList(DenyPath) = .empty;
-        const deny_goal: Term.Compound = .{ .functor = "outcome", .args = try dupTerms(a, &.{ ctx, .{ .atom = "deny" } }) };
-        const dg = try a.alloc(Goal, 1);
-        dg[0] = .{ .call = deny_goal };
-        const deny_solutions = try self.solveAll(dg);
-        for (deny_solutions) |sol| {
-            var witness = try sol.clone();
-            const tree = (try explain.proveGoalPublic(self, deny_goal, &witness, 0)) orelse continue;
-            const rule_name = try ruleName(a, tree.clause_label, tree.clause_id);
-            var dup = false;
-            for (denies.items) |d| {
-                if (std.mem.eql(u8, d.rule, rule_name)) {
-                    dup = true;
-                    break;
+        const gate_atoms = [_][]const u8{ "deny", "require_confirmation", "allow_with_sandbox", "allow_with_redaction" };
+        for (gate_atoms) |gate| {
+            const gate_goal: Term.Compound = .{ .functor = "outcome", .args = try dupTerms(a, &.{ ctx, .{ .atom = gate } }) };
+            const dg = try a.alloc(Goal, 1);
+            dg[0] = .{ .call = gate_goal };
+            const gate_solutions = try self.solveAll(dg);
+            for (gate_solutions) |sol| {
+                var witness = try sol.clone();
+                const tree = (try explain.proveGoalPublic(self, gate_goal, &witness, 0)) orelse continue;
+                const rule_name = try ruleName(a, tree.clause_label, tree.clause_id);
+                var dup = false;
+                for (denies.items) |d| {
+                    if (std.mem.eql(u8, d.rule, rule_name)) {
+                        dup = true;
+                        break;
+                    }
                 }
+                if (dup) continue;
+                var ev: std.ArrayList([]const u8) = .empty;
+                var unused_reasons: std.ArrayList([]const u8) = .empty;
+                try collectFromProof(a, &tree, &unused_reasons, &ev, true);
+                try denies.append(a, .{ .rule = rule_name, .evidence = try ev.toOwnedSlice(a), .outcome = gate });
             }
-            if (dup) continue;
-            var ev: std.ArrayList([]const u8) = .empty;
-            var unused_reasons: std.ArrayList([]const u8) = .empty;
-            try collectFromProof(a, &tree, &unused_reasons, &ev, true);
-            try denies.append(a, .{ .rule = rule_name, .evidence = try ev.toOwnedSlice(a) });
         }
 
         // ── near-miss allow rules: first blocker per clause ──

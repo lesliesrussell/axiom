@@ -291,6 +291,10 @@ const Axiom = struct {
         self.last_should = .{ .subject = subject, .action = action, .resource = resource, .outcome = decision.outcome }; // axiom-07s
         switch (decision.outcome) {
             .allow => okStr("Allow.\n"),
+            // axiom-2fx: gated allows sit between allow and deny
+            .allow_with_redaction => writeStr("Allow with redaction.\n"),
+            .allow_with_sandbox => writeStr("Allow with sandbox.\n"),
+            .require_confirmation => writeStr("Require confirmation.\n"),
             .deny => errStr("Deny.\n"),
             .indeterminate => writeStr("Indeterminate. (no outcome rule matched)\n"),
         }
@@ -331,10 +335,16 @@ const Axiom = struct {
             return;
         }
         if (wn.denies.len > 0) {
-            writeStr("Deny rules in effect:\n");
+            writeStr("Blocking rules in effect:\n");
             for (wn.denies) |d| {
                 writeStr("  - ");
                 writeStr(d.rule);
+                // axiom-2fx: show which gate fired when it isn't a plain deny
+                if (!std.mem.eql(u8, d.outcome, "deny")) {
+                    writeStr(" (");
+                    writeStr(d.outcome);
+                    writeStr(")");
+                }
                 if (d.evidence.len > 0) {
                     writeStr(", relying on: ");
                     for (d.evidence, 0..) |e, i| {
@@ -1558,6 +1568,7 @@ const Axiom = struct {
                     buf.sep();
                     buf.beginObj();
                     buf.strField("rule", d.rule);
+                    buf.strField("outcome", d.outcome); // axiom-2fx
                     buf.stringArrField("evidence", d.evidence);
                     buf.endObj();
                     buf.first_in_scope = false;

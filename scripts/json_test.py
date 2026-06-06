@@ -208,6 +208,38 @@ def main():
           proof10 and any("like(" in c["goal"] for c in proof10[0]["trees"][0]["children"]),
           proof10)
 
+    # ── axiom-2fx: extended decision outcomes with precedence ──
+    objs11, _ = run(
+        "T is a thing.\n"
+        "Act is an action.\n"
+        "% id: base_allow\n"
+        "D has outcome allow if D has subject C and C is a thing.\n"
+        "% id: sandbox_gate\n"
+        "D has outcome allow_with_sandbox if D has subject C and C is a thing.\n"
+        "Should t act?\n"
+        "% id: confirm_gate\n"
+        "D has outcome require_confirmation if D has subject C and C is a thing.\n"
+        "Should t act?\n"
+        "Why not?\n"
+        "% id: hard_deny\n"
+        "D has outcome deny if D has subject C and C is a thing.\n"
+        "Should t act?\n"
+        ":quit\n"
+    )
+    dec11 = [o for o in objs11 if o["type"] == "decision"]
+    check("outcome precedence sandbox > allow",
+          dec11 and dec11[0]["outcome"] == "allow_with_sandbox", dec11)
+    check("outcome precedence confirmation > sandbox",
+          len(dec11) > 1 and dec11[1]["outcome"] == "require_confirmation"
+          and "confirm_gate" in dec11[1]["reasons"], dec11)
+    check("outcome precedence deny wins",
+          len(dec11) > 2 and dec11[2]["outcome"] == "deny"
+          and "hard_deny" in dec11[2]["reasons"], dec11)
+    wn11 = [o for o in objs11 if o["type"] == "whynot"]
+    check("whynot tags gated outcomes",
+          wn11 and any(d.get("outcome") == "require_confirmation" and d["rule"] == "confirm_gate"
+                       for d in wn11[0]["denies"]), wn11)
+
     print()
     print(f"{passed} passed, {len(failed)} failed")
     if failed:
