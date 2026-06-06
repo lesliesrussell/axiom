@@ -159,6 +159,7 @@ const Axiom = struct {
     history_path: ?[]const u8, // axiom-82z
     json_mode: bool, // axiom-47h
     notes_buf: std.ArrayList(u8), // axiom-47h: captured engine text
+    pending_label: []const u8, // axiom-m0n: '% id:' line awaiting its statement
     last_should: ?struct { // axiom-07s: inputs + outcome of the last Should
         subject: []const u8,
         action: []const u8,
@@ -178,6 +179,7 @@ const Axiom = struct {
             .history_path = null,
             .json_mode = false,
             .notes_buf = .empty,
+            .pending_label = "",
             .last_should = null,
         };
     }
@@ -978,8 +980,14 @@ const Axiom = struct {
                 const line = if (nl_pos) |pos| data[0..pos] else data;
                 data = if (nl_pos) |pos| data[pos + 1 ..] else &.{};
 
-                const input = std.mem.trim(u8, line, &std.ascii.whitespace);
-                if (input.len == 0) continue;
+                const trimmed = std.mem.trim(u8, line, &std.ascii.whitespace);
+                if (trimmed.len == 0) continue;
+
+                // axiom-m0n: line_buf is reused by the next read(); asserted
+                // clauses keep term slices into the input, so it must be
+                // duped — batch pipes masked this, interactive-paced piped
+                // clients (agents) corrupted clause functors.
+                const input = self.allocator.dupe(u8, trimmed) catch return;
 
                 if (!self.handleLine(input)) return;
             }
@@ -1603,6 +1611,7 @@ const Axiom = struct {
                     .clause => |clause| {
                         var c = clause;
                         c.source_text = input;
+                        c.label = self.takePendingLabel(); // axiom-m0n
                         self.engine.addClause(c) catch {
                             self.jsonError(input, "usage", "assert failed");
                             return;
@@ -1670,8 +1679,23 @@ const Axiom = struct {
         self.emitObj(&buf);
     }
 
+    fn takePendingLabel(self: *Axiom) []const u8 {
+        const label = self.pending_label;
+        self.pending_label = "";
+        return label;
+    }
+
     /// Dispatch one REPL line. Returns false when the session should end.
     fn handleLine(self: *Axiom, input: []const u8) bool {
+        // axiom-m0n: a pure '% id:' comment line names the next statement
+        // (line-splitting separates it from its rule, so :load-style
+        // adjacency capture cannot see it here)
+        if (std.mem.startsWith(u8, input, "% id:")) {
+            self.pending_label = std.mem.trim(u8, input["% id:".len..], &std.ascii.whitespace);
+            return true;
+        }
+        if (std.mem.startsWith(u8, input, "%")) return true; // plain comment
+
         if (self.json_mode) return self.handleLineJson(input); // axiom-47h
                 // REPL commands
                 if (std.mem.eql(u8, input, ":quit") or std.mem.eql(u8, input, ":q")) {
@@ -1870,7 +1894,8 @@ const Axiom = struct {
             const start_idx = parser.pos; // axiom-76a
             if (parser.parseStatement()) |stmt| {
                 const span = statementSpan(input, tokens, start_idx, parser.pos - 1);
-                self.processStatementWithDir(stmt, null, span, "") catch |err| {
+                const label = self.takePendingLabel(); // axiom-m0n
+                self.processStatementWithDir(stmt, null, span, label) catch |err| {
                     self.printParseErrorWithPos(input, err, 0, 0, "");
                 };
             } else |_| {
