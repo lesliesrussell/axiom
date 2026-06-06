@@ -169,6 +169,20 @@ def main():
     check("unstratified negation errors with kind=limit",
           any(o["type"] == "error" and o.get("kind") == "limit" for o in objs8), objs8)
 
+    # ── axiom-sek: occurs check — X = [X] fails instead of crashing ──
+    objs9, _ = run(
+        "X is weird if X is same_as [X].\n"
+        "X is fine if X is same_as X.\n"
+        "Who is weird?\n"
+        "Is foo fine?\n"
+        ":quit\n"
+    )
+    sols9 = [o for o in objs9 if o["type"] == "solutions"]
+    check("cyclic unification yields zero solutions, no crash",
+          sols9 and sols9[0]["count"] == 0, objs9)
+    check("same-variable unification stays trivially true",
+          any(o["type"] == "yesno" and o["answer"] is True for o in objs9), objs9)
+
     print()
     print(f"{passed} passed, {len(failed)} failed")
     if failed:

@@ -82,6 +82,25 @@ pub const Substitution = struct {
     }
 };
 
+// axiom-sek
+/// Does variable `name` occur in `term` under the current bindings?
+/// Guards unify against cyclic bindings (X = [X]) that would otherwise
+/// send deepWalk, rename, and printing into unbounded recursion.
+fn occurs(name: []const u8, term: Term, subst: *const Substitution) bool {
+    const walked = subst.walk(term);
+    switch (walked) {
+        .variable => |v| return std.mem.eql(u8, v, name),
+        .atom, .integer, .nil => return false,
+        .compound => |c| {
+            for (c.args) |arg| {
+                if (occurs(name, arg, subst)) return true;
+            }
+            return false;
+        },
+        .list => |l| return occurs(name, l.head.*, subst) or occurs(name, l.tail.*, subst),
+    }
+}
+
 pub fn unify(t1: Term, t2: Term, subst: *Substitution) !bool {
     const a = subst.walk(t1);
     const b = subst.walk(t2);
@@ -89,11 +108,19 @@ pub fn unify(t1: Term, t2: Term, subst: *Substitution) !bool {
     const a_tag: @typeInfo(Term).@"union".tag_type.? = a;
     const b_tag: @typeInfo(Term).@"union".tag_type.? = b;
 
+    // axiom-sek: X with X is trivially true — binding X→X would make
+    // walk() loop forever
+    if (a_tag == .variable and b_tag == .variable and std.mem.eql(u8, a.variable, b.variable)) {
+        return true;
+    }
+
     if (a_tag == .variable) {
+        if (occurs(a.variable, b, subst)) return false; // axiom-sek
         try subst.bind(a.variable, b);
         return true;
     }
     if (b_tag == .variable) {
+        if (occurs(b.variable, a, subst)) return false; // axiom-sek
         try subst.bind(b.variable, a);
         return true;
     }
