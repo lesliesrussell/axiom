@@ -27,7 +27,16 @@ pub fn style(s: Style) void {
     });
 }
 
+// axiom-47h: JSON mode captures incidental engine text (trace, lint,
+// warnings) instead of letting it pollute the protocol stream.
+pub var capture_buf: ?*std.ArrayList(u8) = null;
+pub var capture_alloc: std.mem.Allocator = undefined;
+
 pub fn writeRaw(s: []const u8) void {
+    if (capture_buf) |buf| {
+        buf.appendSlice(capture_alloc, s) catch {};
+        return;
+    }
     stdout_file.writeStreamingAll(types.defaultIo(), s) catch {}; // axiom-6th
 }
 

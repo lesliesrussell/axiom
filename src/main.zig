@@ -5,6 +5,7 @@ const desugar_mod = @import("desugar.zig");
 const engine_mod = @import("engine.zig");
 const types = @import("types.zig");
 const editor_mod = @import("editor.zig"); // axiom-82z
+const jsonout = @import("jsonout.zig"); // axiom-47h
 
 const Lexer = lexer_mod.Lexer;
 const Parser = parser_mod.Parser;
@@ -24,11 +25,11 @@ const stdout_file = std.Io.File.stdout();
 fn output(comptime fmt: []const u8, args: anytype) void {
     var buf: [8192]u8 = undefined;
     const text = std.fmt.bufPrint(&buf, fmt, args) catch return;
-    stdout_file.writeStreamingAll(types.defaultIo(), text) catch {}; // axiom-6th
+    eout.writeRaw(text); // axiom-47h: capture-aware (JSON notes)
 }
 
 fn writeStr(s: []const u8) void {
-    stdout_file.writeStreamingAll(types.defaultIo(), s) catch {}; // axiom-6th
+    eout.writeRaw(s); // axiom-47h: capture-aware (JSON notes)
 }
 
 // axiom-wk4
@@ -156,6 +157,8 @@ const Axiom = struct {
     loaded_files: std.ArrayList([]const u8), // axiom-76a: for :reload
     verbose_asserts: bool, // axiom-wk4: per-clause Added: feedback (off during loads)
     history_path: ?[]const u8, // axiom-82z
+    json_mode: bool, // axiom-47h
+    notes_buf: std.ArrayList(u8), // axiom-47h: captured engine text
     last_should: ?struct { // axiom-07s: inputs + outcome of the last Should
         subject: []const u8,
         action: []const u8,
@@ -173,6 +176,8 @@ const Axiom = struct {
             .loaded_files = .empty,
             .verbose_asserts = true,
             .history_path = null,
+            .json_mode = false,
+            .notes_buf = .empty,
             .last_should = null,
         };
     }
@@ -495,13 +500,27 @@ const Axiom = struct {
         };
     }
 
+    const LoadInfo = struct { actual: []const u8, added: usize, skipped: usize }; // axiom-47h
+
     fn loadFile(self: *Axiom, filename: []const u8) !void {
+        const info = (try self.loadFileInfo(filename)) orelse return;
+        const word: []const u8 = if (info.added == 1) "clause" else "clauses";
+        if (info.skipped > 0) {
+            output("Loaded '{s}' ({d} {s}, {d} skipped).\n", .{ info.actual, info.added, word, info.skipped });
+        } else {
+            output("Loaded '{s}' ({d} {s}).\n", .{ info.actual, info.added, word });
+        }
+    }
+
+    /// axiom-47h: structured load result; null when the file is unreadable
+    /// (error already reported).
+    fn loadFileInfo(self: *Axiom, filename: []const u8) !?LoadInfo {
         var actual: []const u8 = filename; // axiom-76a: path that actually loaded
         const source = std.Io.Dir.cwd().readFileAlloc(types.defaultIo(), filename, self.allocator, .limited(1024 * 1024)) catch blk: {
             const with_ext = try std.fmt.allocPrint(self.allocator, "{s}.axm", .{filename});
             const src2 = std.Io.Dir.cwd().readFileAlloc(types.defaultIo(), with_ext, self.allocator, .limited(1024 * 1024)) catch |err| {
                 errOut("Error loading '{s}': {}\n", .{ filename, err });
-                return;
+                return null;
             };
             actual = with_ext;
             break :blk src2;
@@ -524,12 +543,7 @@ const Axiom = struct {
         // axiom-76a: track for :reload (dupe — callers may pass transient buffers)
         const stored = try self.allocator.dupe(u8, actual);
         try self.loaded_files.append(self.allocator, stored);
-        const word: []const u8 = if (added == 1) "clause" else "clauses";
-        if (skipped > 0) {
-            output("Loaded '{s}' ({d} {s}, {d} skipped).\n", .{ actual, added, word, skipped });
-        } else {
-            output("Loaded '{s}' ({d} {s}).\n", .{ actual, added, word });
-        }
+        return .{ .actual = stored, .added = added, .skipped = skipped };
     }
 
     // axiom-krf
@@ -892,6 +906,12 @@ const Axiom = struct {
     }
 
     fn repl(self: *Axiom) !void {
+        // axiom-47h: protocol mode — no banner, no prompt, piped loop
+        if (self.json_mode) {
+            self.enableJsonCapture();
+            try self.replPiped();
+            return;
+        }
         writeStr("Axiom v0.3 — A Prolog-style logic language with controlled-English syntax\n");
         writeStr("Commands: :load, :show, :trace, :why, :pred, :check, :help, :quit\n\n");
 
@@ -935,9 +955,11 @@ const Axiom = struct {
         var line_buf: [4096]u8 = undefined;
 
         while (true) {
-            eout.style(.accent); // axiom-wk4
-            writeStr("axiom> ");
-            eout.style(.reset);
+            if (!self.json_mode) { // axiom-47h
+                eout.style(.accent); // axiom-wk4
+                writeStr("axiom> ");
+                eout.style(.reset);
+            }
 
             // axiom-6th
             const n = stdin_file.readStreaming(types.defaultIo(), &.{&line_buf}) catch |err| switch (err) {
@@ -964,8 +986,693 @@ const Axiom = struct {
         }
     }
 
+    // ─── JSON protocol mode (axiom-47h) ────────────────────────────
+
+    fn enableJsonCapture(self: *Axiom) void {
+        eout.capture_alloc = self.allocator;
+        eout.capture_buf = &self.notes_buf;
+        eout.color_enabled = false;
+    }
+
+    fn disableJsonCapture(_: *Axiom) void {
+        eout.capture_buf = null;
+    }
+
+    /// Write protocol bytes directly to stdout, bypassing the capture.
+    fn jsonWrite(s: []const u8) void {
+        stdout_file.writeStreamingAll(types.defaultIo(), s) catch {};
+    }
+
+    fn newObj(self: *Axiom, input: []const u8, kind: []const u8) jsonout.Buf {
+        var buf = jsonout.Buf.init(self.allocator);
+        buf.beginObj();
+        buf.numField("v", 1);
+        buf.strField("input", input);
+        buf.strField("type", kind);
+        return buf;
+    }
+
+    fn emitObj(self: *Axiom, buf: *jsonout.Buf) void {
+        // drain captured engine text into notes[]
+        if (self.notes_buf.items.len > 0) {
+            buf.key("notes");
+            buf.beginArr();
+            var it = std.mem.splitScalar(u8, self.notes_buf.items, '\n');
+            while (it.next()) |line| {
+                if (line.len == 0) continue;
+                buf.sep();
+                buf.string(line);
+                buf.first_in_scope = false;
+            }
+            buf.endArr();
+            self.notes_buf.clearRetainingCapacity();
+        }
+        buf.endObj();
+        jsonWrite(buf.list.items);
+        jsonWrite("\n");
+    }
+
+    /// Render through the engine's text printers into a string by
+    /// temporarily swapping the capture target.
+    fn captureStart(self: *Axiom) *std.ArrayList(u8) {
+        const tmp = self.allocator.create(std.ArrayList(u8)) catch unreachable;
+        tmp.* = .empty;
+        eout.capture_buf = tmp;
+        return tmp;
+    }
+
+    fn captureEnd(self: *Axiom, tmp: *std.ArrayList(u8)) []const u8 {
+        const text = tmp.items;
+        eout.capture_buf = if (self.json_mode) &self.notes_buf else null;
+        return text;
+    }
+
+    fn clauseText(self: *Axiom, clause: Clause) []const u8 {
+        const tmp = self.captureStart();
+        printClause(clause);
+        return self.captureEnd(tmp);
+    }
+
+    fn goalText(self: *Axiom, c: types.Term.Compound) []const u8 {
+        const tmp = self.captureStart();
+        eout.writeTermTo(.{ .compound = c });
+        return self.captureEnd(tmp);
+    }
+
+    fn termValue(self: *Axiom, buf: *jsonout.Buf, term: Term) void {
+        switch (term) {
+            .integer => |v| {
+                var tmpn: [24]u8 = undefined;
+                const sn = std.fmt.bufPrint(&tmpn, "{d}", .{v}) catch return;
+                buf.raw(sn);
+                buf.first_in_scope = false;
+            },
+            else => {
+                const tmp = self.captureStart();
+                printTerm(term);
+                buf.string(self.captureEnd(tmp));
+            },
+        }
+    }
+
+    fn proofNodeJson(self: *Axiom, buf: *jsonout.Buf, node: *const engine_mod.ProofNode) void {
+        buf.beginObj();
+        buf.strField("kind", @tagName(node.kind));
+        buf.strField("goal", self.goalText(node.goal));
+        if (node.clause_label.len > 0) {
+            buf.strField("rule", node.clause_label);
+        } else if (node.kind == .rule) {
+            var hex_buf: [16]u8 = undefined;
+            buf.strField("rule", engine_mod.identity.hashHex(node.clause_id, &hex_buf));
+        }
+        buf.key("children");
+        buf.beginArr();
+        for (node.children) |*child| {
+            buf.sep();
+            self.proofNodeJson(buf, child);
+            buf.first_in_scope = false;
+        }
+        buf.endArr();
+        buf.endObj();
+        buf.first_in_scope = false;
+    }
+
+    fn jsonLoadFile(self: *Axiom, path: []const u8) void {
+        const info = (self.loadFileInfo(path) catch null) orelse {
+            var buf = self.newObj(path, "error");
+            buf.strField("kind", "file");
+            buf.strField("message", "could not read file");
+            self.emitObj(&buf);
+            return;
+        };
+        var inbuf: [512]u8 = undefined;
+        const in_s = std.fmt.bufPrint(&inbuf, ":load {s}", .{path}) catch path;
+        var buf = self.newObj(in_s, "loaded");
+        buf.strField("file", info.actual);
+        buf.numField("clauses", info.added);
+        buf.numField("skipped", info.skipped);
+        self.emitObj(&buf);
+    }
+
+    fn jsonError(self: *Axiom, input: []const u8, kind: []const u8, message: []const u8) void {
+        var buf = self.newObj(input, "error");
+        buf.strField("kind", kind);
+        buf.strField("message", message);
+        self.emitObj(&buf);
+    }
+
+    fn handleLineJson(self: *Axiom, input: []const u8) bool {
+        if (std.mem.eql(u8, input, ":quit") or std.mem.eql(u8, input, ":q")) {
+            var buf = self.newObj(input, "ok");
+            buf.strField("action", "quit");
+            self.emitObj(&buf);
+            return false;
+        }
+        if (std.mem.eql(u8, input, ":json")) {
+            self.json_mode = false;
+            self.disableJsonCapture();
+            writeStr("JSON mode off.\n");
+            return true;
+        }
+        if (std.mem.startsWith(u8, input, ":load ")) {
+            self.jsonLoadFile(std.mem.trim(u8, input[6..], &std.ascii.whitespace));
+            return true;
+        }
+        if (std.mem.eql(u8, input, ":show") or std.mem.startsWith(u8, input, ":show ")) {
+            const arg = if (input.len > 5) std.mem.trim(u8, input[5..], &std.ascii.whitespace) else "";
+            return self.jsonShow(input, arg);
+        }
+        if (std.mem.startsWith(u8, input, ":retract")) {
+            const arg = std.mem.trim(u8, input[8..], &std.ascii.whitespace);
+            const n = std.fmt.parseInt(usize, arg, 10) catch 0;
+            if (n == 0) {
+                self.jsonError(input, "usage", ":retract <clause-number>");
+                return true;
+            }
+            const removed = self.engine.removeClause(n - 1) orelse {
+                self.jsonError(input, "usage", "no such clause");
+                return true;
+            };
+            var buf = self.newObj(input, "retracted");
+            buf.numField("index", n);
+            buf.strField("text", self.clauseText(removed));
+            self.emitObj(&buf);
+            return true;
+        }
+        if (std.mem.eql(u8, input, ":clear")) {
+            const n = self.engine.getClauses().len;
+            self.engine.clearClauses();
+            self.loaded_files.clearRetainingCapacity();
+            var buf = self.newObj(input, "cleared");
+            buf.numField("count", n);
+            self.emitObj(&buf);
+            return true;
+        }
+        if (std.mem.startsWith(u8, input, ":save")) {
+            const path = std.mem.trim(u8, input[5..], &std.ascii.whitespace);
+            if (path.len == 0) {
+                self.jsonError(input, "usage", ":save <file>");
+                return true;
+            }
+            return self.jsonSave(input, path);
+        }
+        if (std.mem.eql(u8, input, ":reload")) {
+            return self.jsonReload(input);
+        }
+        if (std.mem.eql(u8, input, ":why") or std.mem.startsWith(u8, input, ":why ")) {
+            const arg = if (input.len > 4) std.mem.trim(u8, input[4..], &std.ascii.whitespace) else "";
+            return self.jsonWhy(input, arg);
+        }
+        if (std.mem.startsWith(u8, input, ":diff")) {
+            var fields = std.mem.tokenizeAny(u8, input[5..], " \t");
+            const a = fields.next() orelse {
+                self.jsonError(input, "usage", ":diff <old.axm> <new.axm>");
+                return true;
+            };
+            const b = fields.next() orelse {
+                self.jsonError(input, "usage", ":diff <old.axm> <new.axm>");
+                return true;
+            };
+            return self.jsonDiff(input, a, b);
+        }
+        if (std.mem.startsWith(u8, input, ":whatif")) {
+            var fields = std.mem.tokenizeAny(u8, input[7..], " \t");
+            const a = fields.next();
+            const b = fields.next();
+            const f = fields.next();
+            if (a == null or b == null or f == null) {
+                self.jsonError(input, "usage", ":whatif <old> <new> <inputs>");
+                return true;
+            }
+            return self.jsonWhatIf(input, a.?, b.?, f.?);
+        }
+        if (std.mem.eql(u8, input, ":check")) {
+            self.runChecks();
+            // capture lands in notes_buf; promote to warnings
+            var buf = self.newObj(input, "check");
+            buf.key("warnings");
+            buf.beginArr();
+            var it = std.mem.splitScalar(u8, self.notes_buf.items, '\n');
+            while (it.next()) |line| {
+                if (line.len == 0) continue;
+                buf.sep();
+                buf.string(line);
+                buf.first_in_scope = false;
+            }
+            buf.endArr();
+            self.notes_buf.clearRetainingCapacity();
+            self.emitObj(&buf);
+            return true;
+        }
+        if (std.mem.eql(u8, input, ":trace on") or std.mem.eql(u8, input, ":trace off") or std.mem.eql(u8, input, ":trace")) {
+            if (std.mem.eql(u8, input, ":trace on")) self.engine.trace_enabled = true;
+            if (std.mem.eql(u8, input, ":trace off")) self.engine.trace_enabled = false;
+            var buf = self.newObj(input, "ok");
+            buf.boolField("trace", self.engine.trace_enabled);
+            self.emitObj(&buf);
+            return true;
+        }
+        if (std.mem.startsWith(u8, input, ":pred ")) {
+            return self.jsonPred(input, std.mem.trim(u8, input[6..], &std.ascii.whitespace));
+        }
+        if (std.mem.eql(u8, input, ":help")) {
+            const tmp = self.captureStart();
+            self.printHelp();
+            const text = self.captureEnd(tmp);
+            var buf = self.newObj(input, "text");
+            buf.strField("text", text);
+            self.emitObj(&buf);
+            return true;
+        }
+        if (std.mem.startsWith(u8, input, ":")) {
+            self.jsonError(input, "usage", "unknown command");
+            return true;
+        }
+        self.jsonStatements(input);
+        return true;
+    }
+
+    fn jsonShow(self: *Axiom, input: []const u8, arg: []const u8) bool {
+        const filter: ShowFilter = if (std.mem.eql(u8, arg, "facts")) .facts else if (std.mem.eql(u8, arg, "rules")) .rules else .all;
+        if (arg.len > 0 and filter == .all and !std.mem.eql(u8, arg, "ids") and !std.mem.eql(u8, arg, "english")) {
+            self.jsonError(input, "usage", ":show [facts|rules|ids|english]");
+            return true;
+        }
+        var buf = self.newObj(input, "clauses");
+        buf.key("clauses");
+        buf.beginArr();
+        for (self.engine.getClauses(), 0..) |clause, i| {
+            switch (filter) {
+                .all => {},
+                .facts => if (clause.body.len > 0) continue,
+                .rules => if (clause.body.len == 0) continue,
+            }
+            buf.sep();
+            buf.beginObj();
+            buf.numField("index", i + 1);
+            var hex_buf: [16]u8 = undefined;
+            buf.strField("id", engine_mod.identity.hashHex(clause.id, &hex_buf));
+            if (clause.label.len > 0) buf.strField("label", clause.label);
+            buf.strField("text", self.clauseText(clause));
+            if (engine_mod.english.clauseToEnglish(self.allocator, clause)) |eng| {
+                buf.strField("english", eng);
+            } else |_| {}
+            buf.endObj();
+            buf.first_in_scope = false;
+        }
+        buf.endArr();
+        self.emitObj(&buf);
+        return true;
+    }
+
+    fn jsonSave(self: *Axiom, input: []const u8, path: []const u8) bool {
+        const clauses = self.engine.getClauses();
+        var out: std.ArrayList(u8) = .empty;
+        defer out.deinit(self.allocator);
+        var saved: usize = 0;
+        var skipped: usize = 0;
+        for (clauses) |clause| {
+            if (clause.source_text.len == 0) {
+                skipped += 1;
+                continue;
+            }
+            out.appendSlice(self.allocator, clause.source_text) catch return true;
+            out.append(self.allocator, '\n') catch return true;
+            saved += 1;
+        }
+        std.Io.Dir.cwd().writeFile(types.defaultIo(), .{ .sub_path = path, .data = out.items }) catch {
+            self.jsonError(input, "file", "could not write file");
+            return true;
+        };
+        var buf = self.newObj(input, "saved");
+        buf.strField("file", path);
+        buf.numField("saved", saved);
+        buf.numField("no_source", skipped);
+        self.emitObj(&buf);
+        return true;
+    }
+
+    fn jsonReload(self: *Axiom, input: []const u8) bool {
+        if (self.loaded_files.items.len == 0) {
+            self.jsonError(input, "usage", "no files loaded this session");
+            return true;
+        }
+        const files = self.loaded_files.toOwnedSlice(self.allocator) catch return true;
+        self.engine.clearClauses();
+        var buf = self.newObj(input, "reloaded");
+        buf.key("files");
+        buf.beginArr();
+        for (files) |f| {
+            const info = (self.loadFileInfo(f) catch null) orelse continue;
+            buf.sep();
+            buf.beginObj();
+            buf.strField("file", info.actual);
+            buf.numField("clauses", info.added);
+            buf.numField("skipped", info.skipped);
+            buf.endObj();
+            buf.first_in_scope = false;
+        }
+        buf.endArr();
+        self.emitObj(&buf);
+        return true;
+    }
+
+    fn jsonWhy(self: *Axiom, input: []const u8, arg: []const u8) bool {
+        const goals = self.last_query_goals orelse {
+            self.jsonError(input, "usage", "no successful query to explain");
+            return true;
+        };
+        if (self.last_solutions.len == 0) {
+            self.jsonError(input, "usage", "no successful query to explain");
+            return true;
+        }
+        const n = if (arg.len == 0) 1 else std.fmt.parseInt(usize, arg, 10) catch 0;
+        if (n == 0 or n > self.last_solutions.len) {
+            self.jsonError(input, "usage", "solution index out of range");
+            return true;
+        }
+        const trees = self.engine.buildProofTrees(goals, &self.last_solutions[n - 1]) catch {
+            self.jsonError(input, "usage", "explanation failed");
+            return true;
+        };
+        var buf = self.newObj(input, "proof");
+        buf.numField("solution", n);
+        buf.key("trees");
+        buf.beginArr();
+        for (trees) |*node| {
+            buf.sep();
+            self.proofNodeJson(&buf, node);
+            buf.first_in_scope = false;
+        }
+        buf.endArr();
+        self.emitObj(&buf);
+        return true;
+    }
+
+    fn jsonDiff(self: *Axiom, input: []const u8, old_path: []const u8, new_path: []const u8) bool {
+        var old_eng = self.loadScratch(old_path) orelse {
+            self.jsonError(input, "file", "could not load old version");
+            return true;
+        };
+        var new_eng = self.loadScratch(new_path) orelse {
+            self.jsonError(input, "file", "could not load new version");
+            return true;
+        };
+        const diffs = engine_mod.diff.diffPrograms(self.allocator, old_eng.getClauses(), new_eng.getClauses()) catch {
+            self.jsonError(input, "usage", "diff failed");
+            return true;
+        };
+        var buf = self.newObj(input, "diff");
+        buf.key("changes");
+        buf.beginArr();
+        for (diffs) |d| {
+            buf.sep();
+            buf.beginObj();
+            buf.strField("kind", @tagName(d.kind));
+            const rep = d.new_clause orelse d.old_clause.?;
+            if (rep.label.len > 0) buf.strField("label", rep.label);
+            if (d.old_clause) |c| {
+                if (engine_mod.english.clauseToEnglish(self.allocator, c)) |eng| buf.strField("old", eng) else |_| {}
+            }
+            if (d.new_clause) |c| {
+                if (engine_mod.english.clauseToEnglish(self.allocator, c)) |eng| buf.strField("new", eng) else |_| {}
+            }
+            buf.endObj();
+            buf.first_in_scope = false;
+        }
+        buf.endArr();
+        self.emitObj(&buf);
+        return true;
+    }
+
+    fn jsonWhatIf(self: *Axiom, input: []const u8, old_path: []const u8, new_path: []const u8, inputs_path: []const u8) bool {
+        var old_eng = self.loadScratch(old_path) orelse {
+            self.jsonError(input, "file", "could not load old version");
+            return true;
+        };
+        var new_eng = self.loadScratch(new_path) orelse {
+            self.jsonError(input, "file", "could not load new version");
+            return true;
+        };
+        const data = std.Io.Dir.cwd().readFileAlloc(types.defaultIo(), inputs_path, self.allocator, .limited(1024 * 1024)) catch {
+            self.jsonError(input, "file", "could not read inputs file");
+            return true;
+        };
+        var buf = self.newObj(input, "whatif");
+        buf.key("changed");
+        buf.beginArr();
+        var total: usize = 0;
+        var lines = std.mem.splitScalar(u8, data, '\n');
+        while (lines.next()) |raw_line| {
+            const line = std.mem.trim(u8, raw_line, &std.ascii.whitespace);
+            if (line.len == 0 or line[0] == '%') continue;
+            var fields = std.mem.tokenizeAny(u8, line, " \t");
+            const subject = fields.next() orelse continue;
+            const action = fields.next() orelse continue;
+            const resource = fields.next();
+            total += 1;
+            const old_d = old_eng.decide(subject, action, resource) catch continue;
+            const new_d = new_eng.decide(subject, action, resource) catch continue;
+            if (old_d.outcome == new_d.outcome) continue;
+            buf.sep();
+            buf.beginObj();
+            buf.strField("subject", subject);
+            buf.strField("action", action);
+            if (resource) |r| buf.strField("resource", r);
+            buf.strField("old", @tagName(old_d.outcome));
+            buf.strField("new", @tagName(new_d.outcome));
+            buf.stringArrField("old_reasons", old_d.reasons);
+            buf.stringArrField("new_reasons", new_d.reasons);
+            buf.endObj();
+            buf.first_in_scope = false;
+        }
+        buf.endArr();
+        buf.numField("total", total);
+        self.emitObj(&buf);
+        return true;
+    }
+
+    fn jsonPred(self: *Axiom, input: []const u8, spec: []const u8) bool {
+        const slash = std.mem.indexOfScalar(u8, spec, '/') orelse {
+            self.jsonError(input, "usage", ":pred <name>/<arity>");
+            return true;
+        };
+        const name = spec[0..slash];
+        const arity = std.fmt.parseInt(u8, spec[slash + 1 ..], 10) catch {
+            self.jsonError(input, "usage", "invalid arity");
+            return true;
+        };
+        var buf = self.newObj(input, "pred");
+        buf.strField("name", name);
+        buf.numField("arity", arity);
+        buf.boolField("closed_world", self.engine.isClosedWorld(name));
+        if (self.engine.getPredInfo(name, arity)) |info| {
+            buf.strField("determinism", info.det.label());
+            buf.boolField("declared", true);
+        } else {
+            buf.boolField("declared", false);
+        }
+        var count: usize = 0;
+        for (self.engine.getClauses()) |clause| {
+            if (std.mem.eql(u8, clause.head.functor, name) and clause.head.args.len == arity) count += 1;
+        }
+        buf.numField("clauses", count);
+        self.emitObj(&buf);
+        return true;
+    }
+
+    /// Statements (facts, rules, queries, decisions) in JSON mode: one
+    /// object per parsed statement.
+    fn jsonStatements(self: *Axiom, input: []const u8) void {
+        var lex = Lexer.init(input);
+        const tokens = lex.tokenize(self.allocator) catch {
+            self.jsonError(input, "parse", "tokenize failed");
+            return;
+        };
+        var parser = Parser.init(tokens, self.allocator);
+        while (parser.peek().tag != .eof) {
+            const start_idx = parser.pos;
+            if (parser.parseStatement()) |stmt| {
+                const span = statementSpan(input, tokens, start_idx, parser.pos - 1);
+                const stmt_input = if (span.len > 0) span else input;
+                self.jsonStatement(stmt_input, stmt);
+            } else |_| {
+                var buf = self.newObj(input, "error");
+                buf.strField("kind", "parse");
+                buf.numField("line", parser.last_error_line);
+                buf.numField("col", parser.last_error_col);
+                buf.strField("near", parser.last_error_token);
+                if (phrasingHint(input)) |hint| buf.strField("hint", hint);
+                self.emitObj(&buf);
+                parser.recover();
+            }
+        }
+    }
+
+    fn jsonStatement(self: *Axiom, input: []const u8, stmt: Statement) void {
+        switch (stmt) {
+            .should_query => |q| {
+                const decision = self.engine.decide(q.subject, q.action, q.resource) catch {
+                    self.jsonError(input, "usage", "decision failed");
+                    return;
+                };
+                self.last_should = .{ .subject = q.subject, .action = q.action, .resource = q.resource, .outcome = decision.outcome };
+                var buf = self.newObj(input, "decision");
+                buf.strField("outcome", @tagName(decision.outcome));
+                buf.stringArrField("reasons", decision.reasons);
+                buf.stringArrField("evidence", decision.evidence);
+                self.emitObj(&buf);
+            },
+            .why_not_query => {
+                const last = self.last_should orelse {
+                    self.jsonError(input, "usage", "no decision to explain");
+                    return;
+                };
+                const wn = self.engine.whyNot(last.subject, last.action, last.resource) catch {
+                    self.jsonError(input, "usage", "whynot failed");
+                    return;
+                };
+                var buf = self.newObj(input, "whynot");
+                buf.key("denies");
+                buf.beginArr();
+                for (wn.denies) |d| {
+                    buf.sep();
+                    buf.beginObj();
+                    buf.strField("rule", d.rule);
+                    buf.stringArrField("evidence", d.evidence);
+                    buf.endObj();
+                    buf.first_in_scope = false;
+                }
+                buf.endArr();
+                buf.key("near_misses");
+                buf.beginArr();
+                for (wn.near_misses) |m| {
+                    buf.sep();
+                    buf.beginObj();
+                    buf.strField("rule", m.rule);
+                    buf.strField("blocker", m.blocker);
+                    buf.boolField("blocker_negated", m.blocker_negated);
+                    buf.endObj();
+                    buf.first_in_scope = false;
+                }
+                buf.endArr();
+                self.emitObj(&buf);
+            },
+            .which_actions_query => |q| {
+                const actions = self.engine.allowedActions(q.subject, q.resource) catch {
+                    self.jsonError(input, "usage", "enumeration failed");
+                    return;
+                };
+                var buf = self.newObj(input, "actions");
+                buf.stringArrField("actions", actions);
+                self.emitObj(&buf);
+            },
+            .closed_world_decl => |name| {
+                self.engine.declareClosedWorld(name) catch {};
+                var buf = self.newObj(input, "ok");
+                buf.strField("declared", "closed_world");
+                buf.strField("name", name);
+                self.emitObj(&buf);
+            },
+            .mode_decl => |decl| {
+                self.engine.registerMode(decl) catch {};
+                var buf = self.newObj(input, "ok");
+                buf.strField("declared", "mode");
+                buf.strField("name", decl.pred_name);
+                self.emitObj(&buf);
+            },
+            .command => |cmd| {
+                switch (cmd) {
+                    .load => |filename| self.jsonLoadFile(filename),
+                    .show => _ = self.jsonShow(input, ""),
+                    .include => |filename| {
+                        self.handleInclude(filename, null);
+                        var buf = self.newObj(input, "ok");
+                        buf.strField("action", "include");
+                        self.emitObj(&buf);
+                    },
+                }
+            },
+            else => {
+                var desugarer = Desugarer.init(self.allocator);
+                const result = (desugarer.desugar(stmt) catch {
+                    self.jsonError(input, "parse", "could not translate sentence pattern");
+                    return;
+                }) orelse return;
+                switch (result) {
+                    .clause => |clause| {
+                        var c = clause;
+                        c.source_text = input;
+                        self.engine.addClause(c) catch {
+                            self.jsonError(input, "usage", "assert failed");
+                            return;
+                        };
+                        const stored = self.engine.getClauses()[self.engine.getClauses().len - 1];
+                        var buf = self.newObj(input, "ok");
+                        buf.key("added");
+                        buf.beginObj();
+                        buf.strField("pred", stored.head.functor);
+                        buf.numField("arity", stored.head.args.len);
+                        var hex_buf: [16]u8 = undefined;
+                        buf.strField("id", engine_mod.identity.hashHex(stored.id, &hex_buf));
+                        if (stored.label.len > 0) buf.strField("label", stored.label);
+                        buf.endObj();
+                        self.emitObj(&buf);
+                    },
+                    .query => |q| {
+                        self.jsonQuery(input, q.goals, q.variables);
+                    },
+                }
+            },
+        }
+    }
+
+    fn jsonQuery(self: *Axiom, input: []const u8, goals: []const Goal, variables: []const []const u8) void {
+        self.last_query_goals = goals;
+        const solutions = self.engine.solveAll(goals) catch {
+            self.jsonError(input, "usage", "query failed");
+            return;
+        };
+        self.last_solutions = solutions;
+
+        if (variables.len == 0) {
+            var buf = self.newObj(input, "yesno");
+            buf.boolField("answer", solutions.len > 0);
+            buf.boolField("cwa", solutions.len == 0 and self.allGoalsClosedWorld(goals));
+            self.emitObj(&buf);
+            return;
+        }
+
+        var buf = self.newObj(input, "solutions");
+        buf.numField("count", solutions.len);
+        buf.key("solutions");
+        buf.beginArr();
+        for (solutions) |solution| {
+            buf.sep();
+            buf.beginObj();
+            for (variables) |varname| {
+                const resolved = solution.deepWalk(.{ .variable = varname }, self.allocator) catch continue;
+                switch (resolved) {
+                    .variable => |v| {
+                        if (std.mem.eql(u8, v, varname)) continue;
+                        if (isRenamedVar(varname, v)) continue;
+                    },
+                    else => {},
+                }
+                const display_name = if (std.mem.startsWith(u8, varname, "_")) varname[1..] else varname;
+                buf.key(display_name);
+                self.termValue(&buf, resolved);
+            }
+            buf.endObj();
+            buf.first_in_scope = false;
+        }
+        buf.endArr();
+        self.emitObj(&buf);
+    }
+
     /// Dispatch one REPL line. Returns false when the session should end.
     fn handleLine(self: *Axiom, input: []const u8) bool {
+        if (self.json_mode) return self.handleLineJson(input); // axiom-47h
                 // REPL commands
                 if (std.mem.eql(u8, input, ":quit") or std.mem.eql(u8, input, ":q")) {
                     writeStr("Goodbye.\n");
@@ -1022,6 +1729,16 @@ const Axiom = struct {
 
                 if (std.mem.eql(u8, input, ":reload")) {
                     self.reloadFiles();
+                    return true;
+                }
+
+                // axiom-47h
+                if (std.mem.eql(u8, input, ":json")) {
+                    self.json_mode = true;
+                    self.enableJsonCapture();
+                    var buf = self.newObj(input, "mode");
+                    buf.boolField("json", true);
+                    self.emitObj(&buf);
                     return true;
                 }
 
@@ -1298,14 +2015,23 @@ pub fn main(init: std.process.Init) !void {
         axiom.history_path = try std.fmt.allocPrint(allocator, "{s}/.axiom_history", .{home});
     }
 
-    // axiom-6th
+    // axiom-6th / axiom-47h: flags before file arguments
     var args_it = std.process.Args.Iterator.init(init.minimal.args);
     defer args_it.deinit();
     _ = args_it.skip(); // argv[0]
     while (args_it.next()) |arg| {
-        axiom.loadFile(arg) catch |err| {
-            output("Error: {}\n", .{err});
-        };
+        if (std.mem.eql(u8, arg, "--json")) {
+            axiom.json_mode = true;
+            eout.color_enabled = false;
+            continue;
+        }
+        if (axiom.json_mode) {
+            axiom.jsonLoadFile(arg);
+        } else {
+            axiom.loadFile(arg) catch |err| {
+                output("Error: {}\n", .{err});
+            };
+        }
     }
 
     try axiom.repl();

@@ -25,15 +25,26 @@ const Engine = @import("engine.zig").Engine;
 const max_depth = 64;
 const Error = std.mem.Allocator.Error;
 
+/// Re-prove `goals` under solution `subst`, returning one tree per goal.
+/// axiom-47h: extracted so JSON mode can serialize trees directly.
+pub fn buildProofTrees(eng: *Engine, goals: []const Goal, subst: *const Substitution) Error![]const ProofNode {
+    var witness = subst.clone() catch return &.{};
+    var trees: std.ArrayList(ProofNode) = .empty;
+    for (goals) |g| {
+        if (try topGoalNode(eng, g, &witness)) |node| {
+            try trees.append(eng.allocator, node);
+        }
+    }
+    return trees.toOwnedSlice(eng.allocator);
+}
+
 /// Re-prove `goals` under solution `subst` and print the proof tree(s).
 pub fn explainSolution(eng: *Engine, goals: []const Goal, subst: *const Substitution) void {
-    var witness = subst.clone() catch return;
+    const trees = buildProofTrees(eng, goals, subst) catch return;
     writeRaw("\nBecause:\n");
-    for (goals) |g| {
-        const maybe_node = topGoalNode(eng, g, &witness) catch return;
-        if (maybe_node) |node| {
-            proof.printTree(&node, &witness, eng.allocator, 1);
-        }
+    const witness = subst; // trees are fully walked at build time
+    for (trees) |*node| {
+        proof.printTree(node, witness, eng.allocator, 1);
     }
 }
 

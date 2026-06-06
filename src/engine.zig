@@ -284,6 +284,11 @@ pub const Engine = struct {
         explain.explainSolution(self, goals, subst);
     }
 
+    /// axiom-47h: proof trees as data (JSON mode).
+    pub fn buildProofTrees(self: *Engine, goals: []const Goal, subst: *const Substitution) ![]const proof.ProofNode {
+        return explain.buildProofTrees(self, goals, subst);
+    }
+
     // ─── Decisions (axiom-i01) ──────────────────────────────────────
 
     pub const DecisionOutcome = enum { allow, deny, indeterminate };
