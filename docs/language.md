@@ -236,6 +236,11 @@ include "lib/math.axm".
 
 - `X is smaller_than Y` — wrapper for `less_than(X, Y)`
 - `X is bigger_than Y` — wrapper for `greater_than(X, Y)`
+- Spaced forms parse too: `X is less than Y`, `X is greater than Y`,
+  `X is smaller than Y`, `X is bigger than Y` (also negated:
+  `X is not less than Y`)
+- Comparisons on ground non-integers warn and answer No
+  (`Is nightingale less_than 1000?` — a ship is not a number)
 - `X is equal_to Y` — wrapper for `equal(X, Y)`
 
 ## Error Messages

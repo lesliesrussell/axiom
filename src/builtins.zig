@@ -11,6 +11,25 @@ const Substitution = substitution.Substitution;
 const unify = substitution.unify;
 const output = @import("output.zig");
 const traceCompound = output.traceCompound;
+const writeRaw = output.writeRaw;
+
+// axiom-bjr: comparisons on ground non-integers silently fail — a ship is
+// not a number, and "No." hides the type confusion. Warn once per call.
+fn warnNonInteger(functor: []const u8, a: Term, b: Term) void {
+    const bad: ?Term = if (a != .integer and a != .variable) a else if (b != .integer and b != .variable) b else null;
+    const t = bad orelse return;
+    writeRaw("Warning: ");
+    writeRaw(functor);
+    writeRaw(" expects integers, got ");
+    switch (t) {
+        .atom => |name| writeRaw(name),
+        .nil => writeRaw("[]"),
+        .list => writeRaw("a list"),
+        .compound => |c| writeRaw(c.functor),
+        else => writeRaw("a non-integer"),
+    }
+    writeRaw(" — answering No.\n");
+}
 const Engine = @import("engine.zig").Engine;
 
 pub fn tryBuiltin(eng: *Engine, compound: Term.Compound, subst: Substitution, rest: []const Goal, solutions: *std.ArrayList(Substitution), depth: usize) std.mem.Allocator.Error!bool {
@@ -30,6 +49,7 @@ pub fn tryBuiltin(eng: *Engine, compound: Term.Compound, subst: Substitution, re
     if (std.mem.eql(u8, compound.functor, "less_than") and compound.args.len == 2) {
         const a = subst.walk(compound.args[0]);
         const b = subst.walk(compound.args[1]);
+        warnNonInteger("less_than", a, b); // axiom-bjr
         if (a == .integer and b == .integer) {
             if (a.integer < b.integer) {
                 if (eng.trace_enabled) traceCompound(depth, "EXIT", compound, &subst, eng.allocator);
@@ -45,6 +65,7 @@ pub fn tryBuiltin(eng: *Engine, compound: Term.Compound, subst: Substitution, re
     if (std.mem.eql(u8, compound.functor, "greater_than") and compound.args.len == 2) {
         const a = subst.walk(compound.args[0]);
         const b = subst.walk(compound.args[1]);
+        warnNonInteger("greater_than", a, b); // axiom-bjr
         if (a == .integer and b == .integer) {
             if (a.integer > b.integer) {
                 if (eng.trace_enabled) traceCompound(depth, "EXIT", compound, &subst, eng.allocator);
@@ -60,6 +81,7 @@ pub fn tryBuiltin(eng: *Engine, compound: Term.Compound, subst: Substitution, re
     if (std.mem.eql(u8, compound.functor, "equal") and compound.args.len == 2) {
         const a = subst.walk(compound.args[0]);
         const b = subst.walk(compound.args[1]);
+        warnNonInteger("equal", a, b); // axiom-bjr
         if (a == .integer and b == .integer) {
             if (a.integer == b.integer) {
                 if (eng.trace_enabled) traceCompound(depth, "EXIT", compound, &subst, eng.allocator);

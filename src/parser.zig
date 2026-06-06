@@ -552,6 +552,11 @@ pub const Parser = struct {
     }
 
     fn parseNegatedPredicate(self: *Parser) ParseError!VerbPhrase {
+        // axiom-bjr: "X is not less than Y" etc.
+        if (try self.tryThanComparison()) |vp| {
+            return .{ .is_not = .{ .predicate_with_arg = .{ .pred = vp.is_a.noun, .arg = vp.is_a.of_arg.?.* } } };
+        }
+
         if (self.peek().tag == .kw_a or self.peek().tag == .kw_an) {
             self.pos += 1;
             if (!isIdentLike(self.peek().tag)) return self.fail(ParseError.UnexpectedToken);
@@ -581,7 +586,37 @@ pub const Parser = struct {
         return self.fail(ParseError.UnexpectedToken);
     }
 
+    // axiom-bjr
+    // "less than Y" (kw_less is a keyword) or "<word> than Y" (greater,
+    // bigger, smaller...). Returns an is_a phrase with functor
+    // "<word>_than"; desugar's canonFunctor maps the wrappers.
+    fn tryThanComparison(self: *Parser) ParseError!?VerbPhrase {
+        const saved = self.pos;
+        var word: ?[]const u8 = null;
+        if (self.peek().tag == .kw_less) {
+            word = "less";
+            self.pos += 1;
+        } else if (isIdentLike(self.peek().tag) and self.tokens[self.pos + 1].tag == .kw_than) {
+            word = self.peek().lexeme;
+            self.pos += 1;
+        }
+        if (word == null) return null;
+        if (self.peek().tag != .kw_than) {
+            self.pos = saved;
+            return null;
+        }
+        self.pos += 1;
+        const functor = std.mem.concat(self.allocator, u8, &.{ word.?, "_than" }) catch return ParseError.OutOfMemory;
+        const arg_np = try self.allocNP(try self.parseNounPhrase());
+        return .{ .is_a = .{ .noun = functor, .of_arg = arg_np } };
+    }
+
     fn parseVerbPhraseAfterIs(self: *Parser) ParseError!VerbPhrase {
+        // axiom-bjr: spaced comparison forms — "X is less than Y",
+        // "X is greater than Y" (also bigger/smaller). The lexer has
+        // tokenized less/than as keywords since the start; consume them.
+        if (try self.tryThanComparison()) |vp| return vp;
+
         if (self.peek().tag == .kw_a or self.peek().tag == .kw_an) {
             self.pos += 1;
             if (!isIdentLike(self.peek().tag)) return self.fail(ParseError.UnexpectedToken);
