@@ -53,12 +53,19 @@ bd close <id>         # Complete work
 
 ## Build & Test
 
-_Add your build and test commands here_
+```bash
+zig build               # build axiom + libaxiom into zig-out/
+scripts/run_tests.sh    # full regression: build + every self-checking suite
+```
+
+Individual suites (each exits nonzero on any deviation):
 
 ```bash
-# Example:
-# npm install
-# npm test
+python3 scripts/json_test.py                  # --json protocol contract
+python3 scripts/kyc_test.py                   # end-to-end language scenario
+python3 scripts/pty_test.py                   # interactive line editor (PTY)
+python3 scripts/axiom_gate.py --selftest      # event-envelope gate shim
+python3 scripts/security_conformance_test.py  # security spec conformance (7 classes + adversarial)
 ```
 
 ## Architecture Overview
