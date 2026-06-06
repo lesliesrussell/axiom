@@ -45,6 +45,7 @@ Implemented in [Zig](https://ziglang.org). Ships as a CLI/REPL, a Zig module, an
   - [Tracing](#tracing)
   - [Proof Explanation](#proof-explanation)
 - [Decisions: Policy as Queries](#decisions-policy-as-queries)
+- [For AI Agents](#for-ai-agents)
 - [Built-in Predicates](#built-in-predicates)
 - [Standard Library](#standard-library)
 - [Embedding](#embedding)
@@ -274,6 +275,7 @@ entirely.
 | `:clear` | Remove all clauses and declarations |
 | `:diff <old> <new>` | Semantic clause diff between two `.axm` files |
 | `:whatif <old> <new> <inputs>` | Decision deltas between two policy versions |
+| `:json` | Toggle the JSON protocol (see [For AI Agents](#for-ai-agents)) |
 | `:trace on` / `:trace off` | Toggle execution tracing |
 | `:why [n]` | Proof tree for solution *n* of the last query (default 1) |
 | `:pred name/arity` | Inspect a predicate (determinism, modes, closed-world) |
@@ -368,13 +370,6 @@ Declare the action universe with `Dock is an action.` facts to power
 (`axiom_decide`, `axiom_allowed_actions`) and used by the
 [`examples/guardrail/`](examples/guardrail/) LLM-agent demo.
 
-**For AI agents**: `axiom --json` turns stdin/stdout into a line-oriented
-JSON protocol (one object per statement — decisions, proofs,
-counterfactuals, errors with hints), and `./install-skills.sh` installs a
-ready-made skill into Claude Code (and other detected coding agents) that
-teaches the protocol and the authoring patterns. See
-[`skills/axiom/SKILL.md`](skills/axiom/SKILL.md).
-
 For policy-as-code workflows, `:diff` shows clause-level semantic changes
 between two file versions (variable renaming is invisible — clauses carry
 alpha-normalized identity hashes) and `:whatif` reports which decisions
@@ -386,6 +381,36 @@ absence-is-falsity explicitly — `Is x banned?` then answers
 `No (by closed-world assumption; no proof found).` The
 `lib/policy.axm` pattern adds a three-valued
 allowed / denied / **unknown** status on top.
+
+---
+
+## For AI Agents
+
+`axiom --json` turns stdin/stdout into a line-oriented protocol: every
+statement produces exactly one JSON object, so an agent's loop is
+write-line / read-line / parse.
+
+```text
+$ printf 'Should thane dock?\nWhy not?\n:quit\n' | axiom --json policy.axm
+{"v":1,"input":"Should thane dock?","type":"decision","outcome":"deny",
+ "reasons":["flagged_ships_grounded"],"evidence":["thane is a captain of ironclad", ...]}
+{"v":1,"input":"Why not?","type":"whynot","denies":[...],"near_misses":[...]}
+```
+
+Decisions, proof trees, counterfactuals, semantic diffs, and parse errors
+(with phrasing hints) all arrive structured; incidental engine text
+(traces, lint warnings) rides in a `notes` array, never as bare bytes.
+`:json` toggles the same protocol mid-session.
+
+A ready-made skill teaches coding agents the protocol and the authoring
+patterns:
+
+```sh
+./install-skills.sh        # installs into ~/.claude/skills/axiom/
+                           # (probes Codex, pi.dev, Hermes too; --dry-run available)
+```
+
+Full schema and worked examples: [`skills/axiom/SKILL.md`](skills/axiom/SKILL.md).
 
 ---
 
@@ -585,6 +610,7 @@ A short tour of `src/`:
 | `output.zig` | `std.fmt`-free output helpers + ANSI styling |
 | `types.zig` | Core term types shared across modules |
 | `editor.zig` | Raw-mode line editor: emacs bindings, history, tab/fzf completion |
+| `jsonout.zig` | JSON building helpers for the agent protocol (`--json`) |
 | `lib.zig` | Public Zig module — `Program`, `QueryIterator`, `decide` |
 | `capi.zig` | C ABI shim — opaque handles, `extern fn`s matching `include/axiom.h` |
 | `main.zig` | CLI entrypoint and REPL |
@@ -603,7 +629,8 @@ axiom/
 ├── include/axiom.h      # public C header
 ├── lib/                 # standard-library .axm files (lists, math, policy)
 ├── examples/            # tutorial, starport tour, RBAC, dungeon, guardrail demo, FFI test
-├── scripts/             # PTY-driver tests for the interactive editor
+├── skills/              # agent skill (see install-skills.sh)
+├── scripts/             # PTY + JSON-protocol test drivers
 ├── docs/
 │   ├── language.md      # full language reference
 │   ├── library.md       # full embedding guide (C FFI + Zig module)
