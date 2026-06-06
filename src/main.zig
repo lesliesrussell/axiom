@@ -70,6 +70,15 @@ const labelBefore = types.labelBefore;
 // Curated hints for common unsupported-English phrasings. Word-boundary,
 // case-insensitive matching so atoms like "warehouse" never trigger.
 fn phrasingHint(input: []const u8) ?[]const u8 {
+    // axiom-3af: negated query forms are excluded by design — most
+    // specific trigger, so it fires before the generic hints
+    if (containsWord(input, "not") and
+        (startsWithWord(input, "is") or startsWithWord(input, "who") or
+        startsWithWord(input, "what") or startsWithWord(input, "which") or
+        startsWithWord(input, "can")))
+    {
+        return "negated queries are not supported - ask the positive form; \"No.\" already means not provable. (Negation belongs in rule bodies: \"... if X is not banned.\")";
+    }
     if (containsWord(input, "isn't") or containsWord(input, "aren't") or
         containsWord(input, "don't") or containsWord(input, "doesn't") or
         containsWord(input, "can't") or containsWord(input, "cannot") or
