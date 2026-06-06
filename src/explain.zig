@@ -115,6 +115,18 @@ fn proveGoal(eng: *Engine, compound: Term.Compound, witness: *Substitution, dept
             return ProofNode{ .goal = resolved, .kind = .fact, .children = &.{}, .clause_id = clause.id, .clause_label = clause.label };
         }
 
+        // axiom-ek7: ground the body with the engine's full-backtracking
+        // search before building child nodes. The per-goal directed pass
+        // below commits to the first proof of each body goal; an existential
+        // body var with several candidates (one not fixed by head
+        // unification) would otherwise pick a dead end and fail the clause —
+        // ":why" reported "unproven" for true answers and decide() returned
+        // empty reasons/evidence.
+        var grounded: std.ArrayList(Substitution) = .empty;
+        eng.solveGoalsAll(renamed.body, try attempt.clone(), &grounded, 0) catch continue :clause_loop;
+        if (grounded.items.len == 0) continue :clause_loop;
+        attempt = grounded.items[0];
+
         var kids: std.ArrayList(ProofNode) = .empty;
         for (renamed.body) |bg| {
             switch (bg) {
