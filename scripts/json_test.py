@@ -144,6 +144,31 @@ def main():
     objs6, _ = run(":quit\n", args=["examples/starport.axm"])
     check("--json file arg emits loaded", objs6[0]["type"] == "loaded")
 
+    # ── axiom-7yv: resolution budgets — recursion errors, never hangs ──
+    objs7, _ = run(
+        "X is stuck if X is stuck.\n"
+        "Bob is a person.\n"
+        "Is Bob stuck?\n"
+        "Who is a person?\n"  # engine stays usable after a limit error
+        ":quit\n"
+    )
+    limit = [o for o in objs7 if o["type"] == "error" and o.get("kind") == "limit"]
+    check("self-recursion errors with kind=limit", len(limit) == 1, objs7)
+    check("limit message names the predicate",
+          limit and "stuck/1" in limit[0]["message"], limit)
+    after = [o for o in objs7 if o["type"] == "solutions"]
+    check("session survives a limit error",
+          after and after[0]["solutions"] == [{"Who": "bob"}], objs7)
+
+    objs8, _ = run(
+        "X is odd if X is not even.\n"
+        "X is even if X is not odd.\n"
+        "Is three odd?\n"
+        ":quit\n"
+    )
+    check("unstratified negation errors with kind=limit",
+          any(o["type"] == "error" and o.get("kind") == "limit" for o in objs8), objs8)
+
     print()
     print(f"{passed} passed, {len(failed)} failed")
     if failed:

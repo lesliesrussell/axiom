@@ -32,7 +32,7 @@ fn warnNonInteger(functor: []const u8, a: Term, b: Term) void {
 }
 const Engine = @import("engine.zig").Engine;
 
-pub fn tryBuiltin(eng: *Engine, compound: Term.Compound, subst: Substitution, rest: []const Goal, solutions: *std.ArrayList(Substitution), depth: usize) std.mem.Allocator.Error!bool {
+pub fn tryBuiltin(eng: *Engine, compound: Term.Compound, subst: Substitution, rest: []const Goal, solutions: *std.ArrayList(Substitution), depth: usize) Engine.SolveError!bool {
     // same_as(X, Y) — unification
     if (std.mem.eql(u8, compound.functor, "same_as") and compound.args.len == 2) {
         var new_subst = try subst.clone();
@@ -153,11 +153,12 @@ pub fn tryBuiltin(eng: *Engine, compound: Term.Compound, subst: Substitution, re
     return false;
 }
 
-pub fn tryBuiltinCheck(eng: *Engine, compound: Term.Compound, subst: Substitution, rest: []const Goal, found: *bool) std.mem.Allocator.Error!bool {
+// axiom-7yv: depth threads the resolution budget
+pub fn tryBuiltinCheck(eng: *Engine, compound: Term.Compound, subst: Substitution, rest: []const Goal, found: *bool, depth: usize) Engine.SolveError!bool {
     if (std.mem.eql(u8, compound.functor, "same_as") and compound.args.len == 2) {
         var new_subst = try subst.clone();
         if (try unify(compound.args[0], compound.args[1], &new_subst)) {
-            try eng.checkGoals(rest, new_subst, found);
+            try eng.checkGoals(rest, new_subst, found, depth);
         }
         return true;
     }
@@ -165,7 +166,7 @@ pub fn tryBuiltinCheck(eng: *Engine, compound: Term.Compound, subst: Substitutio
         const a = subst.walk(compound.args[0]);
         const b = subst.walk(compound.args[1]);
         if (a == .integer and b == .integer and a.integer < b.integer) {
-            try eng.checkGoals(rest, subst, found);
+            try eng.checkGoals(rest, subst, found, depth);
         }
         return true;
     }
@@ -173,7 +174,7 @@ pub fn tryBuiltinCheck(eng: *Engine, compound: Term.Compound, subst: Substitutio
         const a = subst.walk(compound.args[0]);
         const b = subst.walk(compound.args[1]);
         if (a == .integer and b == .integer and a.integer > b.integer) {
-            try eng.checkGoals(rest, subst, found);
+            try eng.checkGoals(rest, subst, found, depth);
         }
         return true;
     }
@@ -181,7 +182,7 @@ pub fn tryBuiltinCheck(eng: *Engine, compound: Term.Compound, subst: Substitutio
         const a = subst.walk(compound.args[0]);
         const b = subst.walk(compound.args[1]);
         if (a == .integer and b == .integer and a.integer == b.integer) {
-            try eng.checkGoals(rest, subst, found);
+            try eng.checkGoals(rest, subst, found, depth);
         }
         return true;
     }
@@ -193,7 +194,7 @@ pub fn tryBuiltinCheck(eng: *Engine, compound: Term.Compound, subst: Substitutio
                 .list => |l| {
                     var new_subst = try subst.clone();
                     if (try unify(element, l.head.*, &new_subst)) {
-                        try eng.checkGoals(rest, new_subst, found);
+                        try eng.checkGoals(rest, new_subst, found, depth);
                         if (found.*) return true;
                     }
                     list_term = subst.walk(l.tail.*);
@@ -219,7 +220,7 @@ pub fn tryBuiltinCheck(eng: *Engine, compound: Term.Compound, subst: Substitutio
         }
         var new_subst = try subst.clone();
         if (try unify(compound.args[1], .{ .integer = count }, &new_subst)) {
-            try eng.checkGoals(rest, new_subst, found);
+            try eng.checkGoals(rest, new_subst, found, depth);
         }
         return true;
     }
@@ -229,7 +230,7 @@ pub fn tryBuiltinCheck(eng: *Engine, compound: Term.Compound, subst: Substitutio
         const result_list = appendLists(eng.allocator, list_a, list_b) catch return false;
         var new_subst = try subst.clone();
         if (try unify(compound.args[0], result_list, &new_subst)) {
-            try eng.checkGoals(rest, new_subst, found);
+            try eng.checkGoals(rest, new_subst, found, depth);
         }
         return true;
     }

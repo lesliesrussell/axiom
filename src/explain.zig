@@ -76,7 +76,7 @@ fn isProvable(eng: *Engine, c: Term.Compound, witness: *const Substitution) Erro
     const goal_slice = try eng.allocator.alloc(Goal, 1);
     goal_slice[0] = .{ .call = c };
     const check_subst = try witness.clone();
-    eng.checkGoals(goal_slice, check_subst, &found) catch return false;
+    eng.checkGoals(goal_slice, check_subst, &found, 0) catch return false;
     return found;
 }
 

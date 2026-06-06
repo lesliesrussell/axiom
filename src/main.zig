@@ -396,7 +396,14 @@ const Axiom = struct {
 
     fn runQuery(self: *Axiom, goals: []const Goal, variables: []const []const u8) !void {
         self.last_query_goals = goals;
-        const solutions = try self.engine.solveAll(goals);
+        const solutions = self.engine.solveAll(goals) catch |err| switch (err) {
+            // axiom-7yv: budgets turn hangs into clean, named errors
+            error.StepLimitExceeded, error.DepthLimitExceeded => {
+                errOut("Error: recursion limit exceeded in {s}/{d} — query aborted (likely unbounded recursion).\n", .{ self.engine.limit_functor, self.engine.limit_arity });
+                return;
+            },
+            error.OutOfMemory => return error.OutOfMemory,
+        };
 
         self.last_solutions = solutions; // axiom-9nz
 
@@ -1638,9 +1645,18 @@ const Axiom = struct {
 
     fn jsonQuery(self: *Axiom, input: []const u8, goals: []const Goal, variables: []const []const u8) void {
         self.last_query_goals = goals;
-        const solutions = self.engine.solveAll(goals) catch {
-            self.jsonError(input, "usage", "query failed");
-            return;
+        const solutions = self.engine.solveAll(goals) catch |err| switch (err) {
+            // axiom-7yv: limit errors get their own kind so agents can react
+            error.StepLimitExceeded, error.DepthLimitExceeded => {
+                var msg_buf: [128]u8 = undefined;
+                const msg = std.fmt.bufPrint(&msg_buf, "recursion limit exceeded in {s}/{d}", .{ self.engine.limit_functor, self.engine.limit_arity }) catch "recursion limit exceeded";
+                self.jsonError(input, "limit", msg);
+                return;
+            },
+            else => {
+                self.jsonError(input, "usage", "query failed");
+                return;
+            },
         };
         self.last_solutions = solutions;
 

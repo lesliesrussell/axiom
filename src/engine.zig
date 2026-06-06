@@ -44,6 +44,18 @@ pub const Engine = struct {
     trace_enabled: bool,
     pred_info: checks.PredInfoMap,
     closed_world_preds: std.StringHashMap(void), // axiom-d4s
+    // axiom-7yv: resolution budgets — unbounded recursion must produce a
+    // clean error, not a hang (step) or native stack overflow (depth)
+    step_count: usize,
+    step_limit: usize,
+    depth_limit: usize,
+    limit_functor: []const u8,
+    limit_arity: usize,
+
+    // axiom-7yv
+    pub const default_step_limit: usize = 200_000;
+    pub const default_depth_limit: usize = 1_024;
+    pub const SolveError = std.mem.Allocator.Error || error{ StepLimitExceeded, DepthLimitExceeded };
 
     pub fn init(allocator: std.mem.Allocator) Engine {
         return .{
@@ -53,7 +65,29 @@ pub const Engine = struct {
             .trace_enabled = false,
             .pred_info = checks.PredInfoMap.init(allocator),
             .closed_world_preds = std.StringHashMap(void).init(allocator),
+            .step_count = 0,
+            .step_limit = default_step_limit,
+            .depth_limit = default_depth_limit,
+            .limit_functor = "",
+            .limit_arity = 0,
         };
+    }
+
+    // axiom-7yv
+    /// Charge one resolution step against the session budgets. Records the
+    /// offending predicate so frontends can name it in the error message.
+    fn bumpLimits(self: *Engine, compound: Term.Compound, depth: usize) SolveError!void {
+        self.step_count += 1;
+        if (self.step_count > self.step_limit) {
+            self.limit_functor = compound.functor;
+            self.limit_arity = compound.args.len;
+            return error.StepLimitExceeded;
+        }
+        if (depth > self.depth_limit) {
+            self.limit_functor = compound.functor;
+            self.limit_arity = compound.args.len;
+            return error.DepthLimitExceeded;
+        }
     }
 
     pub fn addClause(self: *Engine, clause: Clause) !void {
@@ -116,6 +150,7 @@ pub const Engine = struct {
 
     /// Collect all solutions for given goals
     pub fn solveAll(self: *Engine, goals: []const Goal) ![]Substitution {
+        self.step_count = 0; // axiom-7yv: fresh budget per top-level query
         var solutions: std.ArrayList(Substitution) = .empty;
         const initial = Substitution.init(self.allocator);
         try self.solveGoalsAll(goals, initial, &solutions, 0);
@@ -134,6 +169,7 @@ pub const Engine = struct {
 
         switch (goal) {
             .call => |compound| {
+                try self.bumpLimits(compound, depth); // axiom-7yv
                 if (self.trace_enabled) {
                     traceCompound(depth, "CALL", compound, &subst, self.allocator);
                 }
@@ -202,7 +238,7 @@ pub const Engine = struct {
                         }
                         var found = false;
                         const inner_goals = try self.allocSliceGoal(&.{Goal{ .call = compound }});
-                        try self.checkGoals(inner_goals, subst, &found);
+                        try self.checkGoals(inner_goals, subst, &found, depth + 1);
                         if (!found) {
                             if (self.trace_enabled) {
                                 traceCompound(depth, "EXIT", compound, &subst, self.allocator);
@@ -224,7 +260,8 @@ pub const Engine = struct {
     }
 
     /// Internal yes/no evaluation — pub for builtins.zig (mutual recursion).
-    pub fn checkGoals(self: *Engine, goals: []const Goal, subst: Substitution, found: *bool) !void {
+    /// axiom-7yv: depth threads the same resolution budget as solveGoalsAll.
+    pub fn checkGoals(self: *Engine, goals: []const Goal, subst: Substitution, found: *bool, depth: usize) !void {
         if (found.*) return;
 
         if (goals.len == 0) {
@@ -237,7 +274,8 @@ pub const Engine = struct {
 
         switch (goal) {
             .call => |compound| {
-                if (try builtins.tryBuiltinCheck(self, compound, subst, rest, found)) return;
+                try self.bumpLimits(compound, depth); // axiom-7yv
+                if (try builtins.tryBuiltinCheck(self, compound, subst, rest, found, depth)) return;
 
                 for (self.clauses.items) |clause| {
                     if (found.*) return;
@@ -248,10 +286,10 @@ pub const Engine = struct {
 
                     if (try unify(goal_term, head_term, &new_subst)) {
                         if (renamed.body.len == 0) {
-                            try self.checkGoals(rest, new_subst, found);
+                            try self.checkGoals(rest, new_subst, found, depth);
                         } else {
                             const combined = try self.concatGoals(renamed.body, rest);
-                            try self.checkGoals(combined, new_subst, found);
+                            try self.checkGoals(combined, new_subst, found, depth + 1);
                         }
                     }
                 }
@@ -261,16 +299,16 @@ pub const Engine = struct {
                     .call => |compound| {
                         var inner_found = false;
                         const inner_goals = try self.allocSliceGoal(&.{Goal{ .call = compound }});
-                        try self.checkGoals(inner_goals, subst, &inner_found);
+                        try self.checkGoals(inner_goals, subst, &inner_found, depth + 1);
                         if (!inner_found) {
-                            try self.checkGoals(rest, subst, found);
+                            try self.checkGoals(rest, subst, found, depth);
                         }
                     },
                     else => {},
                 }
             },
             .cut => {
-                try self.checkGoals(rest, subst, found);
+                try self.checkGoals(rest, subst, found, depth);
             },
         }
     }
