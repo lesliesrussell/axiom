@@ -102,6 +102,12 @@ const Ctx = struct {
     fn serializeTerm(self: *Ctx, term: Term) void {
         switch (term) {
             .atom => |a| self.put(a),
+            // axiom-rhc: quotes distinguish "foo" from atom foo in the hash
+            .string => |s| {
+                self.putByte('"');
+                self.put(s);
+                self.putByte('"');
+            },
             .variable => |name| {
                 // alpha-normalization: positional index, '?' cannot
                 // appear in identifiers so no collision with atoms

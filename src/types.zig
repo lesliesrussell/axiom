@@ -124,6 +124,7 @@ pub const Term = union(enum) {
     atom: []const u8,
     variable: []const u8,
     integer: i64,
+    string: []const u8, // axiom-rhc: quoted literal — paths, URLs, glob patterns
     compound: Compound,
     list: TermList,
     nil, // empty list
@@ -146,6 +147,7 @@ pub const Term = union(enum) {
             .atom => return std.mem.eql(u8, a.atom, b.atom),
             .variable => return std.mem.eql(u8, a.variable, b.variable),
             .integer => return a.integer == b.integer,
+            .string => return std.mem.eql(u8, a.string, b.string), // axiom-rhc
             .nil => return true,
             .compound => {
                 if (!std.mem.eql(u8, a.compound.functor, b.compound.functor)) return false;
@@ -170,6 +172,7 @@ pub const Term = union(enum) {
             .atom => |a| try writer.print("{s}", .{a}),
             .variable => |v| try writer.print("{s}", .{v}),
             .integer => |i| try writer.print("{d}", .{i}),
+            .string => |s| try writer.print("\"{s}\"", .{s}), // axiom-rhc
             .nil => try writer.writeAll("[]"),
             .compound => |c| {
                 try writer.print("{s}(", .{c.functor});
@@ -236,6 +239,7 @@ pub const NounPhrase = union(enum) {
         of_arg: ?*const NounPhrase,
     },
     list_literal: []const Term, // [1, 2, 3]
+    string: []const u8, // axiom-rhc: quoted literal
 };
 
 pub const VerbPhrase = union(enum) {

@@ -172,6 +172,10 @@ fn proveBuiltin(eng: *Engine, wc: Term.Compound, witness: *Substitution) Error!?
     const f = wc.functor;
     const node = ProofNode{ .goal = wc, .kind = .builtin, .children = &.{} };
 
+    if (std.mem.eql(u8, f, "like") and wc.args.len == 2) { // axiom-rhc
+        if (builtins.likeHoldsPublic(wc, witness)) return node;
+        return null;
+    }
     if (std.mem.eql(u8, f, "same_as") and wc.args.len == 2) {
         var attempt = try witness.clone();
         if (unify(wc.args[0], wc.args[1], &attempt) catch false) {

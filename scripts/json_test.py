@@ -183,6 +183,31 @@ def main():
     check("same-variable unification stays trivially true",
           any(o["type"] == "yesno" and o["answer"] is True for o in objs9), objs9)
 
+    # ── axiom-rhc: string terms + like/2 glob matching ──
+    objs10, _ = run(
+        'Probe has target "/proc/self/environ".\n'
+        'Safe has target "/etc/hosts".\n'
+        'X is procfs_read if X has target T and T is like "/proc/*/environ".\n'
+        'X is offpath if X has target T and T is not like "/proc/*".\n'
+        "Who is procfs_read?\n"
+        "Is Safe offpath?\n"
+        'Who has target "/proc/self/environ"?\n'
+        "Is Probe procfs_read?\n"
+        ":why\n"
+        ":quit\n"
+    )
+    sols10 = [o for o in objs10 if o["type"] == "solutions"]
+    check("glob rule matches procfs path",
+          sols10 and sols10[0]["solutions"] == [{"Who": "probe"}], objs10)
+    check("negated glob holds for non-matching path",
+          any(o["type"] == "yesno" and o["answer"] is True for o in objs10), objs10)
+    check("string fact is queryable by exact value",
+          len(sols10) > 1 and sols10[1]["solutions"] == [{"Who": "probe"}], objs10)
+    proof10 = [o for o in objs10 if o["type"] == "proof"]
+    check("proof tree shows like builtin leaf",
+          proof10 and any("like(" in c["goal"] for c in proof10[0]["trees"][0]["children"]),
+          proof10)
+
     print()
     print(f"{passed} passed, {len(failed)} failed")
     if failed:

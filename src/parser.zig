@@ -576,7 +576,7 @@ pub const Parser = struct {
             self.pos += 1;
             if (isIdentLike(self.peek().tag) or self.peek().tag == .variable or
                 self.peek().tag == .kw_a or self.peek().tag == .kw_an or
-                self.peek().tag == .kw_the)
+                self.peek().tag == .kw_the or self.peek().tag == .string) // axiom-rhc
             {
                 const arg_np = try self.parseNounPhrase();
                 return .{ .is_not = .{ .predicate_with_arg = .{ .pred = pred, .arg = arg_np } } };
@@ -632,6 +632,7 @@ pub const Parser = struct {
             // Direct argument without "of"
             const next_after_noun = self.peek().tag;
             if (next_after_noun == .lbracket or next_after_noun == .integer or
+                next_after_noun == .string or // axiom-rhc
                 (isIdentLike(next_after_noun) and next_after_noun != .dot and
                 next_after_noun != .question and next_after_noun != .kw_if and
                 next_after_noun != .kw_and and next_after_noun != .bang and
@@ -657,7 +658,7 @@ pub const Parser = struct {
             const next = self.peek().tag;
             if (isIdentLike(next) or next == .variable or
                 next == .kw_a or next == .kw_an or next == .kw_the or
-                next == .integer or next == .lbracket)
+                next == .integer or next == .lbracket or next == .string) // axiom-rhc
             {
                 if (next != .dot and next != .question and next != .kw_if and
                     next != .kw_and and next != .bang and next != .star)
@@ -677,6 +678,12 @@ pub const Parser = struct {
         const tok = self.peek();
 
         if (tok.tag == .lbracket) return self.parseListLiteral();
+
+        // axiom-rhc: quoted literal — paths, URLs, glob patterns
+        if (tok.tag == .string) {
+            self.pos += 1;
+            return .{ .string = tok.lexeme };
+        }
 
         if (tok.tag == .kw_a or tok.tag == .kw_an or tok.tag == .kw_the or tok.tag == .kw_every or tok.tag == .kw_each or tok.tag == .kw_that) {
             const det = tok.lexeme;

@@ -32,7 +32,78 @@ fn warnNonInteger(functor: []const u8, a: Term, b: Term) void {
 }
 const Engine = @import("engine.zig").Engine;
 
+
+// axiom-rhc
+/// Glob match: '*' spans any (possibly empty) run; all else is literal.
+pub fn globMatch(pattern: []const u8, text: []const u8) bool {
+    if (pattern.len == 0) return text.len == 0;
+    if (pattern[0] == '*') {
+        var i: usize = 0;
+        while (i <= text.len) : (i += 1) {
+            if (globMatch(pattern[1..], text[i..])) return true;
+        }
+        return false;
+    }
+    if (text.len == 0) return false;
+    if (pattern[0] != text[0]) return false;
+    return globMatch(pattern[1..], text[1..]);
+}
+
+// axiom-rhc
+/// The text of an atom or string term; null for everything else.
+fn textOf(t: Term) ?[]const u8 {
+    return switch (t) {
+        .atom => |a| a,
+        .string => |s| s,
+        else => null,
+    };
+}
+
+// axiom-rhc
+/// like(Text, Pattern) holds when the ground text matches the glob
+/// pattern. Unbound or non-text arguments warn and fail.
+fn likeHolds(compound: Term.Compound, subst: *const Substitution) bool {
+    const a = subst.walk(compound.args[0]);
+    const b = subst.walk(compound.args[1]);
+    const text = textOf(a) orelse {
+        warnNonText(a);
+        return false;
+    };
+    const pattern = textOf(b) orelse {
+        warnNonText(b);
+        return false;
+    };
+    return globMatch(pattern, text);
+}
+
+// axiom-rhc
+fn warnNonText(t: Term) void {
+    writeRaw("Warning: like expects text (an atom or \"string\"), got ");
+    switch (t) {
+        .variable => writeRaw("an unbound variable"),
+        .integer => writeRaw("an integer"),
+        .list => writeRaw("a list"),
+        .nil => writeRaw("[]"),
+        .compound => |c| writeRaw(c.functor),
+        else => writeRaw("a non-text term"),
+    }
+    writeRaw(" — answering No.\n");
+}
+
+// axiom-rhc: explain.zig witness prover parity
+pub fn likeHoldsPublic(compound: Term.Compound, subst: *const Substitution) bool {
+    return likeHolds(compound, subst);
+}
+
 pub fn tryBuiltin(eng: *Engine, compound: Term.Compound, subst: Substitution, rest: []const Goal, solutions: *std.ArrayList(Substitution), depth: usize) Engine.SolveError!bool {
+    // axiom-rhc: glob matching for paths, URLs, patterns
+    if (std.mem.eql(u8, compound.functor, "like") and compound.args.len == 2) {
+        if (likeHolds(compound, &subst)) {
+            if (eng.trace_enabled) traceCompound(depth, "EXIT", compound, &subst, eng.allocator);
+            try eng.solveGoalsAll(rest, subst, solutions, depth);
+        }
+        return true;
+    }
     // same_as(X, Y) — unification
     if (std.mem.eql(u8, compound.functor, "same_as") and compound.args.len == 2) {
         var new_subst = try subst.clone();
@@ -155,6 +226,13 @@ pub fn tryBuiltin(eng: *Engine, compound: Term.Compound, subst: Substitution, re
 
 // axiom-7yv: depth threads the resolution budget
 pub fn tryBuiltinCheck(eng: *Engine, compound: Term.Compound, subst: Substitution, rest: []const Goal, found: *bool, depth: usize) Engine.SolveError!bool {
+    // axiom-rhc
+    if (std.mem.eql(u8, compound.functor, "like") and compound.args.len == 2) {
+        if (likeHolds(compound, &subst)) {
+            try eng.checkGoals(rest, subst, found, depth);
+        }
+        return true;
+    }
     if (std.mem.eql(u8, compound.functor, "same_as") and compound.args.len == 2) {
         var new_subst = try subst.clone();
         if (try unify(compound.args[0], compound.args[1], &new_subst)) {

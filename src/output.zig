@@ -112,6 +112,11 @@ pub fn writeTermTo(term: Term) void {
         .atom => |a| writeRaw(a),
         .variable => |v| writeRaw(v),
         .integer => |i| writeInt(i),
+        .string => |s| { // axiom-rhc
+            writeRaw("\"");
+            writeRaw(s);
+            writeRaw("\"");
+        },
         .nil => writeRaw("[]"),
         .compound => |c| {
             writeRaw(c.functor);

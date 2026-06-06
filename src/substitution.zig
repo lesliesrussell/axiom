@@ -63,6 +63,7 @@ pub const Substitution = struct {
             .variable => return walked,
             .atom => return walked,
             .integer => return walked,
+            .string => return walked, // axiom-rhc
             .nil => return walked,
             .compound => |c| {
                 const new_args = try allocator.alloc(Term, c.args.len);
@@ -90,7 +91,7 @@ fn occurs(name: []const u8, term: Term, subst: *const Substitution) bool {
     const walked = subst.walk(term);
     switch (walked) {
         .variable => |v| return std.mem.eql(u8, v, name),
-        .atom, .integer, .nil => return false,
+        .atom, .integer, .string, .nil => return false, // axiom-rhc
         .compound => |c| {
             for (c.args) |arg| {
                 if (occurs(name, arg, subst)) return true;
@@ -130,6 +131,7 @@ pub fn unify(t1: Term, t2: Term, subst: *Substitution) !bool {
     switch (a) {
         .atom => return std.mem.eql(u8, a.atom, b.atom),
         .integer => return a.integer == b.integer,
+        .string => return std.mem.eql(u8, a.string, b.string), // axiom-rhc
         .nil => return true,
         .compound => {
             if (!std.mem.eql(u8, a.compound.functor, b.compound.functor)) return false;

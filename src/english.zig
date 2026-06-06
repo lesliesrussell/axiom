@@ -151,6 +151,11 @@ const Writer = struct {
             .atom => |a| try self.put(a),
             .variable => |v| try self.put(v),
             .integer => |v| try self.putInt(v),
+            .string => |s| { // axiom-rhc
+                try self.put("\"");
+                try self.put(s);
+                try self.put("\"");
+            },
             .nil => try self.put("[]"),
             .compound => |c| try self.rawCompound(c),
             .list => |l| {

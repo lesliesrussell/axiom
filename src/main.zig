@@ -1076,6 +1076,10 @@ const Axiom = struct {
 
     fn termValue(self: *Axiom, buf: *jsonout.Buf, term: Term) void {
         switch (term) {
+            .string => |s| { // axiom-rhc: bare value, no embedded quotes
+                buf.string(s);
+                buf.first_in_scope = false;
+            },
             .integer => |v| {
                 var tmpn: [24]u8 = undefined;
                 const sn = std.fmt.bufPrint(&tmpn, "{d}", .{v}) catch return;
@@ -1983,6 +1987,7 @@ fn printTerm(term: Term) void {
         .atom => |a| output("{s}", .{a}),
         .variable => |v| output("{s}", .{v}),
         .integer => |i| output("{d}", .{i}),
+        .string => |s| output("\"{s}\"", .{s}), // axiom-rhc
         .nil => writeStr("[]"),
         .compound => |c| {
             output("{s}(", .{c.functor});

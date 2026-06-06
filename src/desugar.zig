@@ -117,6 +117,8 @@ pub const Desugarer = struct {
                     },
                     .integer => return DesugarError.InvalidPattern,
                     .list_literal => return DesugarError.InvalidPattern,
+                    .string => return DesugarError.InvalidPattern, // axiom-rhc: a string is not a predicate
+
                 }
             },
             .has => |h| {
@@ -190,6 +192,7 @@ pub const Desugarer = struct {
 
     fn npToTerm(self: *Desugarer, np: NounPhrase) DesugarError!Term {
         switch (np) {
+            .string => |s| return .{ .string = s }, // axiom-rhc
             .proper => |name| {
                 const lower = self.lowerString(name) catch return DesugarError.OutOfMemory;
                 return .{ .atom = lower };
