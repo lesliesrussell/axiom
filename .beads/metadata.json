@@ -1,7 +1,0 @@
-{
-  "database": "dolt",
-  "backend": "dolt",
-  "dolt_mode": "embedded",
-  "dolt_database": "axiom",
-  "project_id": "0eda8c2c-559d-4a21-9d83-7a124cab2efa"
-}

@@ -7,6 +7,9 @@ zig-out/
 /docgen_tmp/
 .nardo/
 .omc/
+.beads/
+.claude/
+.code-spider/
 .Rhistory
 .DS_Store
 
